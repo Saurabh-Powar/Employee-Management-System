@@ -270,13 +270,13 @@ const createTables = async () => {
       `
       INSERT INTO attendance (employee_id, date, check_in, check_out, status, hours_worked, is_late)
       VALUES
-        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), $1::DATE, ($1::DATE || ' 09:00:00')::TIMESTAMP WITH TIME ZONE, ($1::DATE || ' 17:00:00')::TIMESTAMP WITH TIME ZONE, 'check-out', 8.0, FALSE),
-        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), $2::DATE, ($2::DATE || ' 09:15:00')::TIMESTAMP WITH TIME ZONE, ($2::DATE || ' 17:15:00')::TIMESTAMP WITH TIME ZONE, 'check-out', 8.0, TRUE),
-        ((SELECT id FROM employees WHERE email = 'sarah.connor@example.com'), $1::DATE, ($1::DATE || ' 08:45:00')::TIMESTAMP WITH TIME ZONE, ($1::DATE || ' 16:45:00')::TIMESTAMP WITH TIME ZONE, 'check-out', 8.0, TRUE),
-        ((SELECT id FROM employees WHERE email = 'michael.johnson@example.com'), $1::DATE, ($1::DATE || ' 10:05:00')::TIMESTAMP WITH TIME ZONE, ($1::DATE || ' 18:05:00')::TIMESTAMP WITH TIME ZONE, 'check-out', 8.0, TRUE),
-        ((SELECT id FROM employees WHERE email = 'bob.manager@example.com'), $1::DATE, ($1::DATE || ' 09:00:00')::TIMESTAMP WITH TIME ZONE, ($1::DATE || ' 17:30:00')::TIMESTAMP WITH TIME ZONE, 'check-out', 8.5, FALSE)
+        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), $1, $1 || ' 09:00:00', $1 || ' 17:00:00', 'check-out', 8.0, FALSE),
+        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), $2, $2 || ' 09:15:00', $2 || ' 17:15:00', 'check-out', 8.0, TRUE),
+        ((SELECT id FROM employees WHERE email = 'sarah.connor@example.com'), $1, $1 || ' 08:45:00', $1 || ' 16:45:00', 'check-out', 8.0, TRUE),
+        ((SELECT id FROM employees WHERE email = 'michael.johnson@example.com'), $1, $1 || ' 10:05:00', $1 || ' 18:05:00', 'check-out', 8.0, TRUE),
+        ((SELECT id FROM employees WHERE email = 'bob.manager@example.com'), $1, $1 || ' 09:00:00', $1 || ' 17:30:00', 'check-out', 8.5, FALSE)
       ON CONFLICT (employee_id, date) DO NOTHING;
-      `,
+    `,
       [yesterdayStr, todayStr],
     )
 
