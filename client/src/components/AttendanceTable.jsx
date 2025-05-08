@@ -210,7 +210,7 @@ function AttendanceTable({ allowMarking = false }) {
     const dayOfWeek = attendanceDate.toLocaleDateString("en-US", { weekday: "short" }).toLowerCase()
 
     // Check if this day is a working day for this employee
-    if (!shift.days.includes(dayOfWeek)) return false
+    if (!shift.days.some((day) => dayOfWeek.substring(0, 3) === day.substring(0, 3))) return false
 
     // Parse the scheduled start time
     const [scheduledHours, scheduledMinutes] = shift.start_time.split(":").map(Number)

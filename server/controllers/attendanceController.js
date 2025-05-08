@@ -43,10 +43,10 @@ const checkIfLate = async (employee_id, check_in_time) => {
 
     // Get the day of the week for this attendance
     const checkInDate = new Date(check_in_time)
-    const dayOfWeek = checkInDate.toLocaleDateString("en-US", { weekday: "lowercase" })
+    const dayOfWeek = checkInDate.toLocaleDateString("en-US", { weekday: "short" }).toLowerCase()
 
     // Check if this day is a working day for this employee
-    if (!shift.days.includes(dayOfWeek)) {
+    if (!shift.days.some((day) => dayOfWeek.substring(0, 3) === day.substring(0, 3))) {
       return false // Not late if it's not a working day
     }
 

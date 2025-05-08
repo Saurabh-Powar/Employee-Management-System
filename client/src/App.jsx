@@ -1,71 +1,85 @@
 "use client"
 
-import { BrowserRouter as Router, Route, Navigate, Routes } from "react-router-dom"
-import { AuthProvider, useAuth } from "./context/AuthContext.jsx"
-import Login from "./pages/login.jsx"
-import ManagerPage from "./pages/ManagerPage.jsx"
-import EmployeePage from "./pages/EmployeePage.jsx"
-import AdminPage from "./pages/AdminPage.jsx"
+import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom"
+import { AuthProvider, useAuth } from "./context/AuthContext"
+import Login from "./pages/login"
+import EmployeePage from "./pages/EmployeePage"
+import ManagerPage from "./pages/ManagerPage"
+import AdminPage from "./pages/AdminPage"
+import ErrorBoundary from "./components/ErrorBoundary"
 import "./AppS.css"
 
-// Main App component wrapped with AuthProvider
-function App() {
+// Protected route component
+const ProtectedRoute = ({ children, allowedRoles }) => {
+  const { user, loading } = useAuth()
+
+  if (loading) {
+    return (
+      <div className="loading-screen">
+        <div className="loading-spinner"></div>
+        <p>Loading...</p>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />
+  }
+
+  if (allowedRoles && !allowedRoles.includes(user.role)) {
+    // Redirect to appropriate page based on role
+    if (user.role === "admin") return <Navigate to="/admin" replace />
+    if (user.role === "manager") return <Navigate to="/manager" replace />
+    if (user.role === "employee") return <Navigate to="/employee" replace />
+    return <Navigate to="/login" replace />
+  }
+
+  return children
+}
+
+// App content with routes
+const AppContent = () => {
   return (
-    <AuthProvider>
-      <Router>
-        <AppContent />
-      </Router>
-    </AuthProvider>
+    <Router>
+      <ErrorBoundary>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route
+            path="/employee"
+            element={
+              <ProtectedRoute allowedRoles={["employee"]}>
+                <EmployeePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/manager"
+            element={
+              <ProtectedRoute allowedRoles={["manager"]}>
+                <ManagerPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              <ProtectedRoute allowedRoles={["admin"]}>
+                <AdminPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/" element={<Navigate to="/login" replace />} />
+        </Routes>
+      </ErrorBoundary>
+    </Router>
   )
 }
 
-function AppContent() {
-  const { user, loading } = useAuth()
-
-  // Show loading state while checking auth
-  if (loading) {
-    return <div className="spinner">Loading...</div>
-  }
-
+function App() {
   return (
-    <Routes>
-      {/* Redirect logged-in users away from login */}
-      <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
-
-      {/* Role-based routing */}
-      <Route
-        path="/"
-        element={
-          user ? (
-            user.role === "admin" ? (
-              <AdminPage />
-            ) : user.role === "manager" ? (
-              <ManagerPage />
-            ) : user.role === "employee" ? (
-              <EmployeePage />
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          ) : (
-            <Navigate to="/login" replace />
-          )
-        }
-      />
-
-      {/* Add routes for direct access to role pages */}
-      <Route path="/admin" element={user && user.role === "admin" ? <AdminPage /> : <Navigate to="/login" replace />} />
-      <Route
-        path="/manager"
-        element={user && user.role === "manager" ? <ManagerPage /> : <Navigate to="/login" replace />}
-      />
-      <Route
-        path="/employee"
-        element={user && user.role === "employee" ? <EmployeePage /> : <Navigate to="/login" replace />}
-      />
-
-      {/* Catch all other routes and redirect to login */}
-      <Route path="*" element={<Navigate to="/login" replace />} />
-    </Routes>
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   )
 }
 

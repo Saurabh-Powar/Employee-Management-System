@@ -265,16 +265,16 @@ const createTables = async () => {
     const todayStr = today.toISOString().split("T")[0]
     const yesterdayStr = yesterday.toISOString().split("T")[0]
 
-    // Insert attendance records
+    // Insert attendance records - FIX: Use proper date formatting for timestamps
     await query(
       `
       INSERT INTO attendance (employee_id, date, check_in, check_out, status, hours_worked, is_late)
       VALUES
-        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), $1, $1 || ' 09:00:00', $1 || ' 17:00:00', 'check-out', 8.0, FALSE),
-        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), $2, $2 || ' 09:15:00', $2 || ' 17:15:00', 'check-out', 8.0, TRUE),
-        ((SELECT id FROM employees WHERE email = 'sarah.connor@example.com'), $1, $1 || ' 08:45:00', $1 || ' 16:45:00', 'check-out', 8.0, TRUE),
-        ((SELECT id FROM employees WHERE email = 'michael.johnson@example.com'), $1, $1 || ' 10:05:00', $1 || ' 18:05:00', 'check-out', 8.0, TRUE),
-        ((SELECT id FROM employees WHERE email = 'bob.manager@example.com'), $1, $1 || ' 09:00:00', $1 || ' 17:30:00', 'check-out', 8.5, FALSE)
+        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), $1, $1 || ' 09:00:00+00', $1 || ' 17:00:00+00', 'check-out', 8.0, FALSE),
+        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), $2, $2 || ' 09:15:00+00', $2 || ' 17:15:00+00', 'check-out', 8.0, TRUE),
+        ((SELECT id FROM employees WHERE email = 'sarah.connor@example.com'), $1, $1 || ' 08:45:00+00', $1 || ' 16:45:00+00', 'check-out', 8.0, TRUE),
+        ((SELECT id FROM employees WHERE email = 'michael.johnson@example.com'), $1, $1 || ' 10:05:00+00', $1 || ' 18:05:00+00', 'check-out', 8.0, TRUE),
+        ((SELECT id FROM employees WHERE email = 'bob.manager@example.com'), $1, $1 || ' 09:00:00+00', $1 || ' 17:30:00+00', 'check-out', 8.5, FALSE)
       ON CONFLICT (employee_id, date) DO NOTHING;
     `,
       [yesterdayStr, todayStr],
@@ -326,7 +326,7 @@ const createTables = async () => {
         ((SELECT id FROM users WHERE username = 'employee3'), 'Performance Review', 'Your performance review is scheduled next week', 'alert'),
         ((SELECT id FROM users WHERE username = 'manager'), 'Leave Requests', 'You have 3 pending leave requests to review', 'alert'),
         ((SELECT id FROM users WHERE username = 'admin'), 'System Update', 'System maintenance scheduled this weekend', 'update')
-      ON CONFLICT DO NOTHING;
+      ON CONFLICT (user_id, title) DO NOTHING;
     `)
 
     // Add some sample tasks

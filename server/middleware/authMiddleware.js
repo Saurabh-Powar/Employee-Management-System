@@ -61,10 +61,6 @@ const isSelfOrManagerOrAdmin = (req, res, next) => {
 }
 
 module.exports = {
-  isAuthentmessage: "Access denied: You can only access your own data"
-}
-
-module.exports = {
   isAuthenticated,
   isManager,
   isAdmin,

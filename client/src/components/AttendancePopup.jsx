@@ -50,7 +50,7 @@ function AttendancePopup({ onClose, status, setStatus, setAccessBlocked }) {
               const dayOfWeek = now.toLocaleDateString("en-US", { weekday: "short" }).toLowerCase()
 
               // Check if today is a working day
-              if (shiftResponse.data.days.includes(dayOfWeek)) {
+              if (shiftResponse.data.days.some((day) => dayOfWeek.substring(0, 3) === day.substring(0, 3))) {
                 // Parse the scheduled start time
                 const [scheduledHours, scheduledMinutes] = shiftResponse.data.start_time.split(":").map(Number)
 
