@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { useAuth } from "../context/AuthContext"
 import "./Loginstyle.css"
@@ -11,7 +11,32 @@ const Login = () => {
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
-  const { login } = useAuth()
+  const { login, user, isAuthenticated } = useAuth()
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      redirectBasedOnRole(user.role)
+    }
+  }, [isAuthenticated, user, navigate])
+
+  const redirectBasedOnRole = (role) => {
+    console.log(`Redirecting user with role: ${role}`)
+    switch (role) {
+      case "admin":
+        navigate("/admin")
+        break
+      case "manager":
+        navigate("/manager")
+        break
+      case "employee":
+        navigate("/employee")
+        break
+      default:
+        console.error(`Unknown role: ${role}`)
+        navigate("/login")
+    }
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -20,16 +45,17 @@ const Login = () => {
 
     try {
       const response = await login(username, password)
-      const user = response?.user || response
+      console.log("Login response:", response)
 
-      if (user?.role) {
-        navigate("/")
+      if (response?.user?.role) {
+        console.log(`Login successful for ${username} with role: ${response.user.role}`)
+        redirectBasedOnRole(response.user.role)
       } else {
-        setError("Invalid login. Please check your credentials.")
+        setError("Invalid login response. Please try again.")
       }
     } catch (err) {
       console.error("Login failed:", err)
-      setError(err.response?.data?.message || "Login failed. Please try again later.")
+      setError(err.message || "Login failed. Please check your credentials and try again.")
     } finally {
       setLoading(false)
     }

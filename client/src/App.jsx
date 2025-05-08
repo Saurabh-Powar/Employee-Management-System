@@ -11,7 +11,7 @@ import "./AppS.css"
 
 // Protected route component
 const ProtectedRoute = ({ children, allowedRoles }) => {
-  const { user, loading } = useAuth()
+  const { user, loading, isAuthenticated } = useAuth()
 
   if (loading) {
     return (
@@ -22,11 +22,13 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
     )
   }
 
-  if (!user) {
+  if (!isAuthenticated || !user) {
+    console.log("User not authenticated, redirecting to login")
     return <Navigate to="/login" replace />
   }
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {
+    console.log(`User role ${user.role} not allowed, redirecting to appropriate page`)
     // Redirect to appropriate page based on role
     if (user.role === "admin") return <Navigate to="/admin" replace />
     if (user.role === "manager") return <Navigate to="/manager" replace />
@@ -35,6 +37,36 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   }
 
   return children
+}
+
+// Root redirect component
+const RootRedirect = () => {
+  const { user, loading, isAuthenticated } = useAuth()
+
+  if (loading) {
+    return (
+      <div className="loading-screen">
+        <div className="loading-spinner"></div>
+        <p>Loading...</p>
+      </div>
+    )
+  }
+
+  if (!isAuthenticated || !user) {
+    return <Navigate to="/login" replace />
+  }
+
+  // Redirect based on user role
+  switch (user.role) {
+    case "admin":
+      return <Navigate to="/admin" replace />
+    case "manager":
+      return <Navigate to="/manager" replace />
+    case "employee":
+      return <Navigate to="/employee" replace />
+    default:
+      return <Navigate to="/login" replace />
+  }
 }
 
 // App content with routes
@@ -68,7 +100,8 @@ const AppContent = () => {
               </ProtectedRoute>
             }
           />
-          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="/" element={<RootRedirect />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </ErrorBoundary>
     </Router>

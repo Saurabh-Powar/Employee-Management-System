@@ -16,6 +16,7 @@ const shiftsRoutes = require("./routes/shiftsRoutes")
 const PORT = process.env.PORT || 5000
 const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000"
 const SESSION_SECRET = process.env.SESSION_SECRET || "your_session_secret"
+const isProduction = process.env.NODE_ENV === "production"
 
 const app = express()
 
@@ -25,6 +26,8 @@ app.use(
   cors({
     origin: CLIENT_URL,
     credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   }),
 )
 
@@ -35,9 +38,12 @@ app.use(
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: process.env.NODE_ENV === "production",
+      // In development, we allow non-secure cookies for testing
+      // In production, always use secure cookies
+      secure: isProduction,
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      sameSite: isProduction ? "none" : "lax", // Needed for cross-site cookies in production
     },
   }),
 )
@@ -70,4 +76,6 @@ app.get("/health", (req, res) => {
 // Start server
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`)
+  console.log(`Environment: ${isProduction ? "Production" : "Development"}`)
+  console.log(`CORS enabled for origin: ${CLIENT_URL}`)
 })

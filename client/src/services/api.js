@@ -1,19 +1,18 @@
 import axios from "axios"
 
-// Create axios instance with base URL and credentials
+// Create an axios instance with default config
 const api = axios.create({
-  baseURL: "http://localhost:5000/api",
-  withCredentials: true,
+  baseURL: import.meta.env.VITE_API_URL || "http://localhost:5000/api",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  withCredentials: true, // Important for cookies/sessions
 })
 
-// Add request interceptor to ensure auth headers are sent
+// Add request interceptor for authentication
 api.interceptors.request.use(
   (config) => {
-    // Get token from localStorage if available
-    const token = localStorage.getItem("authToken")
-    if (token) {
-      config.headers["Authorization"] = `Bearer ${token}`
-    }
+    // You can add auth headers here if needed
     return config
   },
   (error) => {
@@ -21,16 +20,16 @@ api.interceptors.request.use(
   },
 )
 
-// Add response interceptor to handle auth errors
+// Add response interceptor for error handling
 api.interceptors.response.use(
   (response) => {
     return response
   },
   (error) => {
-    if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+    // Handle session expiration or auth errors
+    if (error.response && error.response.status === 401) {
       console.error("Authentication error:", error.response.data)
-      // Optionally redirect to login page if needed
-      // window.location.href = '/login';
+      // You could dispatch a logout action here or redirect
     }
     return Promise.reject(error)
   },

@@ -265,16 +265,16 @@ const createTables = async () => {
     const todayStr = today.toISOString().split("T")[0]
     const yesterdayStr = yesterday.toISOString().split("T")[0]
 
-    // Insert attendance records - FIX: Use proper date formatting for timestamps
+    // Insert attendance records with proper type handling
     await query(
       `
       INSERT INTO attendance (employee_id, date, check_in, check_out, status, hours_worked, is_late)
       VALUES
-        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), $1, $1 || ' 09:00:00+00', $1 || ' 17:00:00+00', 'check-out', 8.0, FALSE),
-        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), $2, $2 || ' 09:15:00+00', $2 || ' 17:15:00+00', 'check-out', 8.0, TRUE),
-        ((SELECT id FROM employees WHERE email = 'sarah.connor@example.com'), $1, $1 || ' 08:45:00+00', $1 || ' 16:45:00+00', 'check-out', 8.0, TRUE),
-        ((SELECT id FROM employees WHERE email = 'michael.johnson@example.com'), $1, $1 || ' 10:05:00+00', $1 || ' 18:05:00+00', 'check-out', 8.0, TRUE),
-        ((SELECT id FROM employees WHERE email = 'bob.manager@example.com'), $1, $1 || ' 09:00:00+00', $1 || ' 17:30:00+00', 'check-out', 8.5, FALSE)
+        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), $1::date, ($1::date || ' 09:00:00')::timestamp with time zone, ($1::date || ' 17:00:00')::timestamp with time zone, 'check-out', 8.0, FALSE),
+        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), $2::date, ($2::date || ' 09:15:00')::timestamp with time zone, ($2::date || ' 17:15:00')::timestamp with time zone, 'check-out', 8.0, TRUE),
+        ((SELECT id FROM employees WHERE email = 'sarah.connor@example.com'), $1::date, ($1::date || ' 08:45:00')::timestamp with time zone, ($1::date || ' 16:45:00')::timestamp with time zone, 'check-out', 8.0, TRUE),
+        ((SELECT id FROM employees WHERE email = 'michael.johnson@example.com'), $1::date, ($1::date || ' 10:05:00')::timestamp with time zone, ($1::date || ' 18:05:00')::timestamp with time zone, 'check-out', 8.0, TRUE),
+        ((SELECT id FROM employees WHERE email = 'bob.manager@example.com'), $1::date, ($1::date || ' 09:00:00')::timestamp with time zone, ($1::date || ' 17:30:00')::timestamp with time zone, 'check-out', 8.5, FALSE)
       ON CONFLICT (employee_id, date) DO NOTHING;
     `,
       [yesterdayStr, todayStr],
