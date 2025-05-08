@@ -158,23 +158,152 @@ const tasksController = {
       return res.status(401).json({ message: "Authentication required" })
     }
 
-    if (!status || !["assigned", "in_progress", "completed"].includes(status)) {
+    if (!status || !["assigned", "in_progress", "pending_completion", "completed"].includes(status)) {
       return res.status(400).json({ message: "Invalid status value" })
     }
 
     try {
+      // Get the current task to check permissions
+      const taskCheck = await db.query("SELECT * FROM tasks WHERE id = $1", [id])
+
+      if (taskCheck.rows.length === 0) {
+        return res.status(404).json({ message: "Task not found" })
+      }
+
+      const task = taskCheck.rows[0]
+
+      // Only managers and admins can mark a task as completed from pending_completion
+      if (
+        status === "completed" &&
+        task.status === "pending_completion" &&
+        req.session.user.role !== "manager" &&
+        req.session.user.role !== "admin"
+      ) {
+        return res.status(403).json({ message: "Only managers and admins can approve task completion" })
+      }
+
+      // Update the task status
       const result = await db.query(
         `
         UPDATE tasks 
         SET status = $1, updated_at = NOW() 
         WHERE id = $2 
         RETURNING *
-      `,
+        `,
         [status, id],
       )
 
-      if (result.rows.length === 0) {
-        return res.status(404).json({ message: "Task not found" })
+      // If task is completed, create a notification for the employee
+      if (status === "completed" && (req.session.user.role === "manager" || req.session.user.role === "admin")) {
+        // Get the employee's user_id
+        const employeeQuery = await db.query(
+          `
+          SELECT e.user_id, t.title
+          FROM employees e
+          JOIN tasks t ON e.id = t.employee_id
+          WHERE t.id = $1
+          `,
+          [id],
+        )
+
+        if (employeeQuery.rows.length > 0) {
+          const { user_id, title } = employeeQuery.rows[0]
+
+          // Create notification
+          await db.query(
+            `
+            INSERT INTO notifications (
+              user_id, sender_id, title, message, type
+            )
+            VALUES ($1, $2, $3, $4, 'success')
+            `,
+            [user_id, req.session.user.id, "Task Completed", `Your task "${title}" has been marked as completed`],
+          )
+        }
+      }
+
+      // If task is rejected (moved back to in_progress), notify the employee
+      if (
+        status === "in_progress" &&
+        task.status === "pending_completion" &&
+        (req.session.user.role === "manager" || req.session.user.role === "admin")
+      ) {
+        // Get the employee's user_id
+        const employeeQuery = await db.query(
+          `
+          SELECT e.user_id, t.title
+          FROM employees e
+          JOIN tasks t ON e.id = t.employee_id
+          WHERE t.id = $1
+          `,
+          [id],
+        )
+
+        if (employeeQuery.rows.length > 0) {
+          const { user_id, title } = employeeQuery.rows[0]
+
+          // Create notification
+          await db.query(
+            `
+            INSERT INTO notifications (
+              user_id, sender_id, title, message, type
+            )
+            VALUES ($1, $2, $3, $4, 'alert')
+            `,
+            [
+              user_id,
+              req.session.user.id,
+              "Task Needs More Work",
+              `Your completion request for "${title}" was rejected. Please review and resubmit.`,
+            ],
+          )
+        }
+      }
+
+      // Send WebSocket notification
+      const wsServer = req.app.get("wsServer")
+      if (wsServer) {
+        // If task status is changed to pending_completion, notify managers
+        if (status === "pending_completion") {
+          wsServer.sendToRole("manager", {
+            type: "task_completion_request",
+            data: {
+              task_id: id,
+              task_title: taskCheck.rows[0].title,
+              employee_id: taskCheck.rows[0].employee_id,
+            },
+          })
+        }
+
+        // If task status is changed to completed or back to in_progress, notify the employee
+        if ((status === "completed" || status === "in_progress") && task.status === "pending_completion") {
+          // Get the employee's user_id
+          const employeeQuery = await db.query(
+            `
+            SELECT e.user_id
+            FROM employees e
+            JOIN tasks t ON e.id = t.employee_id
+            WHERE t.id = $1
+            `,
+            [id],
+          )
+
+          if (employeeQuery.rows.length > 0) {
+            const { user_id } = employeeQuery.rows[0]
+
+            wsServer.sendToUser(user_id, {
+              type: "task_status_update",
+              data: {
+                task_id: id,
+                status: status,
+                message:
+                  status === "completed"
+                    ? "Your task completion request was approved"
+                    : "Your task completion request was rejected",
+              },
+            })
+          }
+        }
       }
 
       res.status(200).json(result.rows[0])

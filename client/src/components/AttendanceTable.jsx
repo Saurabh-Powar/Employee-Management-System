@@ -7,6 +7,7 @@ import AttendancePopup from "./AttendancePopup"
 import AttendanceCorrection from "./AttendanceCorrection"
 import { Clock, AlertCircle, RefreshCw } from "lucide-react"
 import "./AttendanceTableS.css"
+import websocketService from "../services/websocket"
 
 function AttendanceTable({ allowMarking = false }) {
   const { user, refreshUser } = useAuth()
@@ -125,6 +126,20 @@ function AttendanceTable({ allowMarking = false }) {
 
     return () => clearInterval(intervalId)
   }, [user, refreshTrigger, fetchAttendanceData])
+
+  // Add a useEffect hook for WebSocket listeners
+  useEffect(() => {
+    // Set up WebSocket listener for attendance updates
+    const removeListener = websocketService.on("attendance_update", (data) => {
+      console.log("Received attendance update via WebSocket:", data)
+      triggerRefresh() // Refresh the attendance data
+    })
+
+    // Clean up listener on unmount
+    return () => {
+      removeListener()
+    }
+  }, [triggerRefresh])
 
   const handleAttendanceClick = () => {
     setShowPopup(true)

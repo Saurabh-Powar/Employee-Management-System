@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect } from "react"
 import authService from "../services/auth"
+import websocketService from "../services/websocket"
 
 const AuthContext = createContext()
 
@@ -21,6 +22,11 @@ export const AuthProvider = ({ children }) => {
         if (userData && userData.user) {
           setUser(userData.user)
           console.log("User authenticated:", userData.user)
+
+          // Connect to WebSocket when user is authenticated
+          if (userData.user.id) {
+            websocketService.connect(userData.user.id, userData.user.role)
+          }
         }
       } catch (err) {
         console.log("Not authenticated yet:", err.message)
@@ -31,6 +37,11 @@ export const AuthProvider = ({ children }) => {
     }
 
     initAuth()
+
+    // Disconnect WebSocket on unmount
+    return () => {
+      websocketService.disconnect()
+    }
   }, [])
 
   // Login function
@@ -43,6 +54,8 @@ export const AuthProvider = ({ children }) => {
       // Check if the response contains user data
       if (response && response.user) {
         setUser(response.user)
+        // Connect to WebSocket after successful login
+        websocketService.connect(response.user.id, response.user.role)
         return response
       } else if (response && response.id && response.role) {
         // Handle case where user data is directly in the response
@@ -52,6 +65,8 @@ export const AuthProvider = ({ children }) => {
           role: response.role,
         }
         setUser(userData)
+        // Connect to WebSocket after successful login
+        websocketService.connect(userData.id, userData.role)
         return { user: userData }
       } else {
         throw new Error("Invalid response format from server")
@@ -68,6 +83,8 @@ export const AuthProvider = ({ children }) => {
     try {
       await authService.logout()
       setUser(null)
+      // Disconnect WebSocket on logout
+      websocketService.disconnect()
     } catch (err) {
       console.error("Logout error:", err)
       setError(err.message || "Logout failed")

@@ -1,6 +1,7 @@
 const express = require("express")
 const session = require("express-session")
 const cors = require("cors")
+const http = require("http")
 const createTables = require("./db/migrate")
 const authRoutes = require("./routes/authRoutes")
 const employeesRoutes = require("./routes/employeesRoutes")
@@ -11,6 +12,7 @@ const salariesRoutes = require("./routes/salariesRoutes")
 const notificationsRoutes = require("./routes/notificationsRoutes")
 const tasksRoutes = require("./routes/tasksRoutes")
 const shiftsRoutes = require("./routes/shiftsRoutes")
+const initWebSocket = require("./websocket")
 
 // Load environment variables
 const PORT = process.env.PORT || 5000
@@ -19,6 +21,13 @@ const SESSION_SECRET = process.env.SESSION_SECRET || "your_session_secret"
 const isProduction = process.env.NODE_ENV === "production"
 
 const app = express()
+const server = http.createServer(app)
+
+// Initialize WebSocket server
+const wsServer = initWebSocket(server)
+
+// Make WebSocket server available to routes
+app.set("wsServer", wsServer)
 
 // Middleware
 app.use(express.json())
@@ -74,8 +83,9 @@ app.get("/health", (req, res) => {
 })
 
 // Start server
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`)
   console.log(`Environment: ${isProduction ? "Production" : "Development"}`)
   console.log(`CORS enabled for origin: ${CLIENT_URL}`)
+  console.log(`WebSocket server initialized`)
 })

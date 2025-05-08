@@ -1,9 +1,10 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "../context/AuthContext"
 import api from "../services/api"
 import "./LeaveFormS.css"
+import websocketService from "../services/websocket"
 
 function LeaveForm() {
   const { user } = useAuth()
@@ -16,16 +17,11 @@ function LeaveForm() {
   const [leaveRequests, setLeaveRequests] = useState([])
   const [loadingRequests, setLoadingRequests] = useState(true)
 
-  useEffect(() => {
-    if (user?.id) {
-      fetchLeaveRequests()
-    }
-  }, [user?.id])
-
   // Update fetchLeaveRequests function to handle API responses correctly
-  const fetchLeaveRequests = async () => {
+  const fetchLeaveRequests = useCallback(async () => {
     try {
       setLoadingRequests(true)
+      // Use the correct employee ID from the user object
       const response = await api.get(`/leaves/${user.id}`)
       if (response.data && response.data.leaves) {
         setLeaveRequests(response.data.leaves)
@@ -38,7 +34,27 @@ function LeaveForm() {
     } finally {
       setLoadingRequests(false)
     }
-  }
+  }, [user?.id])
+
+  useEffect(() => {
+    if (user?.id) {
+      fetchLeaveRequests()
+    }
+  }, [user?.id, fetchLeaveRequests])
+
+  // Add a useEffect hook for WebSocket listeners
+  useEffect(() => {
+    // Set up WebSocket listener for leave updates
+    const leaveUpdateListener = websocketService.on("leave_update", (data) => {
+      console.log("Received leave update via WebSocket:", data)
+      fetchLeaveRequests() // Refresh the leave requests
+    })
+
+    // Clean up listener on unmount
+    return () => {
+      leaveUpdateListener()
+    }
+  }, [fetchLeaveRequests])
 
   // Improve the validation and date handling in handleSubmit
   const handleSubmit = async (e) => {

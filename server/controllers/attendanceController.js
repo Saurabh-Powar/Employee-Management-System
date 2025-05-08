@@ -435,6 +435,30 @@ const attendanceController = {
         "INSERT INTO attendance (employee_id, date, status) VALUES ($1, $2, $3) RETURNING *",
         [employeeId, date, ATTENDANCE_STATUS.ABSENT],
       )
+
+      // Send WebSocket notification
+      const wsServer = req.app.get("wsServer")
+      if (wsServer) {
+        // Notify managers and admins
+        wsServer.sendToRole("manager", {
+          type: "attendance_update",
+          data: {
+            employee_id: employeeId,
+            status: ATTENDANCE_STATUS.ABSENT,
+            date: new Date().toISOString().split("T")[0],
+          },
+        })
+
+        wsServer.sendToRole("admin", {
+          type: "attendance_update",
+          data: {
+            employee_id: employeeId,
+            status: ATTENDANCE_STATUS.ABSENT,
+            date: new Date().toISOString().split("T")[0],
+          },
+        })
+      }
+
       res.status(201).json(result.rows[0])
     } catch (error) {
       console.error("Error marking absent employee:", error)
@@ -578,6 +602,29 @@ const attendanceController = {
             isLate,
           ],
         )
+      }
+
+      // Send WebSocket notification
+      const wsServer = req.app.get("wsServer")
+      if (wsServer) {
+        // Notify managers and admins
+        wsServer.sendToRole("manager", {
+          type: "attendance_update",
+          data: {
+            employee_id: employeeId,
+            status: status,
+            date: new Date().toISOString().split("T")[0],
+          },
+        })
+
+        wsServer.sendToRole("admin", {
+          type: "attendance_update",
+          data: {
+            employee_id: employeeId,
+            status: status,
+            date: new Date().toISOString().split("T")[0],
+          },
+        })
       }
 
       res.status(200).json({

@@ -7,6 +7,8 @@ import TaskForm from "./TaskForm"
 import TaskTimer from "./TaskTimer"
 import { Calendar, CheckCircle, Clock, Filter, Plus, Search, Tag } from "lucide-react"
 import "./TaskListS.css"
+// Add import at the top
+import websocketService from "../services/websocket"
 
 function TaskList() {
   const { user } = useAuth()
@@ -156,6 +158,27 @@ function TaskList() {
     }
   }, [currentEmployeeId])
 
+  // Add a useEffect hook for WebSocket listeners
+  useEffect(() => {
+    // Set up WebSocket listener for task status updates
+    const taskStatusListener = websocketService.on("task_status_update", (data) => {
+      console.log("Received task status update via WebSocket:", data)
+      fetchTasks() // Refresh the tasks
+    })
+
+    // Set up WebSocket listener for task completion requests
+    const taskCompletionListener = websocketService.on("task_completion_request", (data) => {
+      console.log("Received task completion request via WebSocket:", data)
+      fetchTasks() // Refresh the tasks
+    })
+
+    // Clean up listeners on unmount
+    return () => {
+      taskStatusListener()
+      taskCompletionListener()
+    }
+  }, [])
+
   const handleCreateTask = (newTask) => {
     setTasks((prev) => [newTask, ...prev])
     setSuccessMessage("Task created successfully")
@@ -201,12 +224,32 @@ function TaskList() {
     triggerRefresh() // Refresh tasks to get updated time spent
   }
 
+  // Add a new function to handle requesting task completion
+  const handleRequestCompletion = async (taskId) => {
+    try {
+      await api.put(`/tasks/${taskId}/status`, { status: "pending_completion" })
+      setTasks((prev) =>
+        prev.map((task) =>
+          task.id === taskId ? { ...task, status: "pending_completion", updated_at: new Date() } : task,
+        ),
+      )
+      setSuccessMessage(`Completion request submitted for manager approval`)
+      setTimeout(() => setSuccessMessage(""), 3000)
+    } catch (err) {
+      console.error("Failed to request task completion:", err)
+      setError("Failed to request task completion. Please try again.")
+    }
+  }
+
+  // Update the getStatusClass function to include the new status
   const getStatusClass = (status) => {
     switch (status) {
       case "assigned":
         return "status-assigned"
       case "in_progress":
         return "status-in-progress"
+      case "pending_completion":
+        return "status-pending"
       case "completed":
         return "status-completed"
       case "overdue":
@@ -302,6 +345,12 @@ function TaskList() {
             In Progress
           </button>
           <button
+            className={`filter-btn ${filter === "pending_completion" ? "active" : ""}`}
+            onClick={() => setFilter("pending_completion")}
+          >
+            Pending Approval
+          </button>
+          <button
             className={`filter-btn ${filter === "completed" ? "active" : ""}`}
             onClick={() => setFilter("completed")}
           >
@@ -395,19 +444,44 @@ function TaskList() {
               </div>
 
               <div className="task-actions">
-                {user.role === "employee" && task.status !== "completed" && (
+                {user.role === "employee" && task.status !== "completed" && task.status !== "pending_completion" && (
                   <button className="timer-btn" onClick={() => handleStartTimer(task)}>
                     <Clock size={14} />
                     {task.status === "in_progress" ? "Continue Working" : "Start Working"}
                   </button>
                 )}
 
-                {task.status !== "completed" && (
-                  <button className="complete-btn" onClick={() => handleUpdateStatus(task.id, "completed")}>
+                {user.role === "employee" && (task.status === "assigned" || task.status === "in_progress") && (
+                  <button className="complete-btn" onClick={() => handleRequestCompletion(task.id)}>
                     <CheckCircle size={14} />
-                    Mark Complete
+                    Request Completion
                   </button>
                 )}
+
+                {user.role === "employee" && task.status === "pending_completion" && (
+                  <span className="pending-badge">Awaiting Approval</span>
+                )}
+
+                {(user.role === "manager" || user.role === "admin") && task.status === "pending_completion" && (
+                  <>
+                    <button className="approve-btn" onClick={() => handleUpdateStatus(task.id, "completed")}>
+                      <CheckCircle size={14} />
+                      Approve Completion
+                    </button>
+                    <button className="reject-btn" onClick={() => handleUpdateStatus(task.id, "in_progress")}>
+                      Reject & Return
+                    </button>
+                  </>
+                )}
+
+                {(user.role === "manager" || user.role === "admin") &&
+                  task.status !== "pending_completion" &&
+                  task.status !== "completed" && (
+                    <button className="complete-btn" onClick={() => handleUpdateStatus(task.id, "completed")}>
+                      <CheckCircle size={14} />
+                      Mark Complete
+                    </button>
+                  )}
 
                 {(user.role === "manager" || user.role === "admin") && (
                   <button className="delete-btn" onClick={() => handleDeleteTask(task.id)}>

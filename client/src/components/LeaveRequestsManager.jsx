@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { useAuth } from "../context/AuthContext"
 import api from "../services/api"
 import "./LeaveRequestsManagerS.css"
+import websocketService from "../services/websocket"
 
 function LeaveRequestsManager() {
   const { user } = useAuth()
@@ -41,6 +42,27 @@ function LeaveRequestsManager() {
       fetchLeaveRequests()
     }
   }, [user?.id])
+
+  // Add a useEffect hook for WebSocket listeners
+  useEffect(() => {
+    // Set up WebSocket listener for new leave requests
+    const newLeaveListener = websocketService.on("new_leave_request", (data) => {
+      console.log("Received new leave request via WebSocket:", data)
+      fetchLeaveRequests() // Refresh the leave requests
+    })
+
+    // Set up WebSocket listener for leave updates
+    const leaveUpdateListener = websocketService.on("leave_update", (data) => {
+      console.log("Received leave update via WebSocket:", data)
+      fetchLeaveRequests() // Refresh the leave requests
+    })
+
+    // Clean up listeners on unmount
+    return () => {
+      newLeaveListener()
+      leaveUpdateListener()
+    }
+  }, [])
 
   // Improve the handleUpdateStatus function to better handle errors and state updates
   const handleUpdateStatus = async (leaveId, status) => {

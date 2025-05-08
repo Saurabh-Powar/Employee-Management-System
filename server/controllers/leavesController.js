@@ -35,6 +35,28 @@ const createLeave = async (req, res) => {
       [employee_id, start_date, end_date, reason],
     )
 
+    // Send WebSocket notification to managers and admins
+    const wsServer = req.app.get("wsServer")
+    if (wsServer) {
+      wsServer.sendToRole("manager", {
+        type: "new_leave_request",
+        data: {
+          employee_id: employee_id,
+          start_date: start_date,
+          end_date: end_date,
+        },
+      })
+
+      wsServer.sendToRole("admin", {
+        type: "new_leave_request",
+        data: {
+          employee_id: employee_id,
+          start_date: start_date,
+          end_date: end_date,
+        },
+      })
+    }
+
     return res.status(201).json({
       message: "Leave request created successfully",
       leave: result.rows[0],
@@ -188,6 +210,20 @@ const updateLeaveStatus = async (req, res) => {
           // Continue with other dates even if one fails
         }
       }
+    }
+
+    // Send WebSocket notification
+    const wsServer = req.app.get("wsServer")
+    if (wsServer) {
+      // Notify the employee
+      wsServer.sendToUser(employee.user_id, {
+        type: "leave_update",
+        data: {
+          leave_id: leave_id,
+          status: status,
+          message: `Your leave request has been ${status}`,
+        },
+      })
     }
 
     return res.status(200).json({

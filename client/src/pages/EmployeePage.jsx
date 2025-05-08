@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { useAuth } from "../context/AuthContext"
 import Sidebar from "../components/Sidebar"
 import AttendanceTable from "../components/AttendanceTable"
-import LeaveRequestsManager from "../components/LeaveRequestsManager"
+import LeaveForm from "../components/LeaveForm"
 import SalaryCalculator from "../components/SalaryCalculator"
 import PerformanceEvaluation from "../components/PerformanceEvaluation"
 import TaskList from "../components/TaskList"
@@ -60,7 +60,7 @@ function EmployeePage() {
       case "shifts":
         return <EmployeeShiftView />
       case "leaves":
-        return <LeaveRequestsManager />
+        return <LeaveForm />
       case "salaries":
         return <SalaryCalculator />
       case "performance":
