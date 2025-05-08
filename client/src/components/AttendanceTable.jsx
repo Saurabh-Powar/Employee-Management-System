@@ -1,10 +1,11 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { useAuth } from "../context/AuthContext"
 import api from "../services/api"
 import AttendancePopup from "./AttendancePopup"
 import AttendanceCorrection from "./AttendanceCorrection"
+import { Clock, AlertCircle, RefreshCw } from "lucide-react"
 import "./AttendanceTableS.css"
 
 function AttendanceTable({ allowMarking = false }) {
@@ -20,14 +21,15 @@ function AttendanceTable({ allowMarking = false }) {
   const [showCorrectionForm, setShowCorrectionForm] = useState(false)
   const [selectedEmployee, setSelectedEmployee] = useState(null)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
+  const [employeeShifts, setEmployeeShifts] = useState({})
 
   // Function to trigger a refresh of attendance data
-  const triggerRefresh = () => {
+  const triggerRefresh = useCallback(() => {
     setRefreshTrigger((prev) => prev + 1)
-  }
+  }, [])
 
   // Update the fetchAttendanceData function to properly handle manager attendance
-  const fetchAttendanceData = async () => {
+  const fetchAttendanceData = useCallback(async () => {
     if (!user) return
     setLoading(true)
     setError("")
@@ -45,6 +47,16 @@ function AttendanceTable({ allowMarking = false }) {
       }
 
       const data = response.data
+
+      // Fetch employee shifts for attendance status determination
+      const shiftsResponse = await api.get("/shifts")
+      const shifts = shiftsResponse.data.reduce((acc, shift) => {
+        acc[shift.employee_id] = shift
+        return acc
+      }, {})
+
+      setEmployeeShifts(shifts)
+
       // For managers, separate their own attendance from team attendance
       if (user.role === "manager") {
         // Find the manager's employee ID
@@ -101,7 +113,7 @@ function AttendanceTable({ allowMarking = false }) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [user])
 
   useEffect(() => {
     fetchAttendanceData()
@@ -112,7 +124,7 @@ function AttendanceTable({ allowMarking = false }) {
     }, 60000)
 
     return () => clearInterval(intervalId)
-  }, [user, refreshTrigger])
+  }, [user, refreshTrigger, fetchAttendanceData])
 
   const handleAttendanceClick = () => {
     setShowPopup(true)
@@ -184,6 +196,36 @@ function AttendanceTable({ allowMarking = false }) {
     })
   }
 
+  // Function to determine if an employee was late based on their shift
+  const isLate = (record) => {
+    if (!record || !record.check_in || record.status === "absent") return false
+
+    // Get the employee's shift
+    const shift = employeeShifts[record.employee_id]
+    if (!shift) return false
+
+    // Get the day of the week for this attendance record
+    const attendanceDate = new Date(record.date)
+    const dayOfWeek = attendanceDate.toLocaleDateString("en-US", { weekday: "lowercase" })
+
+    // Check if this day is a working day for this employee
+    if (!shift.days.includes(dayOfWeek)) return false
+
+    // Parse the scheduled start time
+    const [scheduledHours, scheduledMinutes] = shift.start_time.split(":").map(Number)
+
+    // Create a date object for the scheduled start time on the attendance date
+    const scheduledStart = new Date(attendanceDate)
+    scheduledStart.setHours(scheduledHours, scheduledMinutes, 0, 0)
+
+    // Parse the actual check-in time
+    const actualCheckIn = new Date(record.check_in)
+
+    // Employee is late if they checked in after their scheduled start time
+    return actualCheckIn > scheduledStart
+  }
+
+  // Enhanced render function to show late status
   const render = (rows, showId = false) => {
     if (!rows.length) return <p className="no-records">No records found</p>
     return (
@@ -208,8 +250,14 @@ function AttendanceTable({ allowMarking = false }) {
               user.role === "manager" &&
               own.some((record) => record.employee_id === r.employee_id && record.date === r.date)
 
+            // Check if employee was late
+            const employeeLate = isLate(r)
+
             return (
-              <tr key={`${r.employee_id}-${r.date}`} className={`status-${r.status}`}>
+              <tr
+                key={`${r.employee_id}-${r.date}`}
+                className={`status-${r.status} ${employeeLate ? "status-late" : ""}`}
+              >
                 {showId && <td>{r.employee_id}</td>}
                 {showId && (
                   <td>
@@ -218,7 +266,10 @@ function AttendanceTable({ allowMarking = false }) {
                 )}
                 {showId && <td>{r.department || "N/A"}</td>}
                 <td>{formatDate(r.date)}</td>
-                <td>{formatTime(r.check_in)}</td>
+                <td className={employeeLate ? "late-check-in" : ""}>
+                  {formatTime(r.check_in)}
+                  {employeeLate && <AlertCircle size={14} className="late-icon" title="Late check-in" />}
+                </td>
                 <td>{formatTime(r.check_out)}</td>
                 <td>{r.hours_worked ?? "--"}</td>
                 <td className={`status-${r.status}`}>
@@ -259,7 +310,6 @@ function AttendanceTable({ allowMarking = false }) {
       </div>
     )
 
-  // Update the render function to properly show attendance marking for managers too
   return (
     <div className="attendance-table-container">
       <h2 className="attendance-title">Attendance Dashboard</h2>
@@ -267,27 +317,34 @@ function AttendanceTable({ allowMarking = false }) {
       {error && <div className="error-message">{error}</div>}
       {successMessage && <div className="success-message">{successMessage}</div>}
 
-      {/* Show attendance marking for employees and managers */}
-      {allowMarking && (user.role === "employee" || user.role === "manager") && (
-        <div className="attendance-actions">
-          <h3>Today's Attendance</h3>
-          <div className="attendance-status-container">
-            <div className="attendance-status">
-              {status ? (
-                <p>
-                  Your status today: <span className={`status-badge ${status}`}>{status}</span>
-                </p>
-              ) : (
-                <p>You haven't marked attendance today</p>
-              )}
+      <div className="attendance-actions-bar">
+        {/* Show attendance marking for employees and managers */}
+        {allowMarking && (user.role === "employee" || user.role === "manager") && (
+          <div className="attendance-actions">
+            <div className="attendance-status-container">
+              <div className="attendance-status">
+                {status ? (
+                  <p>
+                    Your status today: <span className={`status-badge ${status}`}>{status}</span>
+                  </p>
+                ) : (
+                  <p>You haven't marked attendance today</p>
+                )}
+              </div>
+              <button className="attendance-status-btn" onClick={handleAttendanceClick} disabled={accessBlocked}>
+                <Clock size={16} />
+                Mark Attendance
+              </button>
             </div>
-            <button className="attendance-status-btn" onClick={handleAttendanceClick} disabled={accessBlocked}>
-              Mark Attendance
-            </button>
+            {accessBlocked && <p className="attendance-note">You have already completed your attendance for today.</p>}
           </div>
-          {accessBlocked && <p className="attendance-note">You have already completed your attendance for today.</p>}
-        </div>
-      )}
+        )}
+
+        <button className="refresh-btn" onClick={triggerRefresh} title="Refresh attendance data">
+          <RefreshCw size={16} />
+          Refresh
+        </button>
+      </div>
 
       {/* Attendance Popup */}
       {showPopup && (

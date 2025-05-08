@@ -4,12 +4,71 @@ const ATTENDANCE_STATUS = {
   CHECK_IN: "check-in",
   CHECK_OUT: "check-out",
   ABSENT: "absent",
+  LATE: "late",
 }
 
 // Helper function to check if an attendance record exists for today
 const checkAttendanceExistence = async (employee_id, date) => {
   const result = await db.query("SELECT * FROM attendance WHERE employee_id = $1 AND date = $2", [employee_id, date])
   return result.rows[0]
+}
+
+// Helper function to check if an employee is late based on their shift
+const checkIfLate = async (employee_id, check_in_time) => {
+  try {
+    // Get the employee's shift
+    const shiftResult = await db.query("SELECT * FROM shifts WHERE employee_id = $1", [employee_id])
+
+    if (shiftResult.rows.length === 0) {
+      // If no shift is defined, use default 9:00 AM
+      const defaultStartTime = "09:00"
+      const [hours, minutes] = defaultStartTime.split(":").map(Number)
+
+      // Create a date object for today with the default start time
+      const checkInDate = new Date(check_in_time)
+      const scheduledStart = new Date(
+        checkInDate.getFullYear(),
+        checkInDate.getMonth(),
+        checkInDate.getDate(),
+        hours,
+        minutes,
+        0,
+      )
+
+      // Employee is late if they checked in after their scheduled start time
+      return check_in_time > scheduledStart
+    }
+
+    const shift = shiftResult.rows[0]
+
+    // Get the day of the week for this attendance
+    const checkInDate = new Date(check_in_time)
+    const dayOfWeek = checkInDate.toLocaleDateString("en-US", { weekday: "lowercase" })
+
+    // Check if this day is a working day for this employee
+    if (!shift.days.includes(dayOfWeek)) {
+      return false // Not late if it's not a working day
+    }
+
+    // Parse the scheduled start time
+    const [hours, minutes] = shift.start_time.split(":").map(Number)
+
+    // Create a date object for the scheduled start time on the attendance date
+    const scheduledStart = new Date(
+      checkInDate.getFullYear(),
+      checkInDate.getMonth(),
+      checkInDate.getDate(),
+      hours,
+      minutes,
+      0,
+    )
+
+    // Employee is late if they checked in after their scheduled start time
+    return check_in_time > scheduledStart
+  } catch (error) {
+    console.error("Error checking if employee is late:", error)
+    return false // Default to not late if there's an error
+  }
 }
 
 const attendanceController = {
@@ -145,7 +204,7 @@ const attendanceController = {
   // Check in an employee (employee and manager only)
   checkIn: async (req, res) => {
     const sessionUser = req.session.user
-    const { employeeId } = req.body
+    const { employeeId, isLate } = req.body
 
     // Verify user is authenticated
     if (!sessionUser) {
@@ -161,13 +220,13 @@ const attendanceController = {
     if (sessionUser.role === "employee") {
       // Get the employee record for the current user
       const employeeResult = await db.query("SELECT id FROM employees WHERE user_id = $1", [sessionUser.id])
-      
+
       if (employeeResult.rows.length === 0) {
         return res.status(404).json({ message: "Employee record not found" })
       }
-      
+
       const userEmployeeId = employeeResult.rows[0].id
-      
+
       if (Number(employeeId) !== userEmployeeId) {
         return res.status(403).json({ message: "You can only check in yourself" })
       }
@@ -188,10 +247,70 @@ const attendanceController = {
         }
       }
 
+      // Check if employee is late based on their shift
+      const isEmployeeLate = isLate || (await checkIfLate(employeeId, new Date(check_in)))
+      const status = isEmployeeLate ? ATTENDANCE_STATUS.LATE : ATTENDANCE_STATUS.CHECK_IN
+
       const result = await db.query(
-        "INSERT INTO attendance (employee_id, date, check_in, status) VALUES ($1, $2, $3, $4) RETURNING *",
-        [employeeId, date, check_in, ATTENDANCE_STATUS.CHECK_IN],
+        "INSERT INTO attendance (employee_id, date, check_in, status, is_late) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+        [employeeId, date, check_in, status, isEmployeeLate],
       )
+
+      // Create a notification if employee is late
+      if (isEmployeeLate) {
+        // Get the employee's user_id
+        const employeeQuery = await db.query(
+          `SELECT e.id, e.user_id, e.first_name, e.last_name
+           FROM employees e 
+           WHERE e.id = $1`,
+          [employeeId],
+        )
+
+        if (employeeQuery.rows.length > 0) {
+          const employee = employeeQuery.rows[0]
+
+          // Create a notification for the employee
+          await db.query(
+            `INSERT INTO notifications (
+              user_id, title, message, type
+            )
+            VALUES ($1, $2, $3, 'alert')
+            ON CONFLICT (user_id, title) DO UPDATE
+            SET message = $3, is_read = false`,
+            [employee.user_id, "Late Check-in", `You checked in late on ${new Date().toLocaleDateString()}.`],
+          )
+
+          // If the employee has a manager, notify them too
+          if (sessionUser.role !== "manager") {
+            // Find managers
+            const managersQuery = await db.query(
+              `SELECT u.id 
+               FROM users u 
+               WHERE u.role = 'manager'
+               LIMIT 1`,
+            )
+
+            if (managersQuery.rows.length > 0) {
+              const manager = managersQuery.rows[0]
+
+              await db.query(
+                `INSERT INTO notifications (
+                  user_id, title, message, type
+                )
+                VALUES ($1, $2, $3, 'alert')
+                ON CONFLICT (user_id, title) DO UPDATE
+                SET message = $3, is_read = false`,
+                [
+                  manager.id,
+                  `Late Check-in: ${employee.first_name} ${employee.last_name}`,
+                  `${employee.first_name} ${employee.last_name} checked in late on ${new Date().toLocaleDateString()}.`,
+                ],
+              )
+            }
+          }
+        }
+      }
+
       res.status(201).json(result.rows[0])
     } catch (error) {
       console.error("Error checking in employee:", error)
@@ -218,13 +337,13 @@ const attendanceController = {
     if (sessionUser.role === "employee") {
       // Get the employee record for the current user
       const employeeResult = await db.query("SELECT id FROM employees WHERE user_id = $1", [sessionUser.id])
-      
+
       if (employeeResult.rows.length === 0) {
         return res.status(404).json({ message: "Employee record not found" })
       }
-      
+
       const userEmployeeId = employeeResult.rows[0].id
-      
+
       if (Number(employeeId) !== userEmployeeId) {
         return res.status(403).json({ message: "You can only check out yourself" })
       }
@@ -291,13 +410,13 @@ const attendanceController = {
     if (sessionUser.role === "employee") {
       // Get the employee record for the current user
       const employeeResult = await db.query("SELECT id FROM employees WHERE user_id = $1", [sessionUser.id])
-      
+
       if (employeeResult.rows.length === 0) {
         return res.status(404).json({ message: "Employee record not found" })
       }
-      
+
       const userEmployeeId = employeeResult.rows[0].id
-      
+
       if (Number(employeeId) !== userEmployeeId) {
         return res.status(403).json({ message: "You can only mark yourself absent" })
       }
@@ -420,19 +539,31 @@ const attendanceController = {
           hoursWorked = (diffMs / (1000 * 60 * 60)).toFixed(2)
         }
 
+        // Check if employee is late based on their shift
+        let isLate = false
+        if (checkIn && status !== "absent") {
+          isLate = await checkIfLate(employeeId, new Date(checkIn))
+        }
+
         result = await db.query(
           `UPDATE attendance 
            SET check_in = $1, check_out = $2, status = $3, hours_worked = $4, 
-               corrected_by = $5, correction_time = NOW(), correction_reason = $6
-           WHERE id = $7 RETURNING *`,
-          [checkIn, checkOut, status, hoursWorked, sessionUser.id, reason, existingRecord.id],
+               corrected_by = $5, correction_time = NOW(), correction_reason = $6, is_late = $7
+           WHERE id = $8 RETURNING *`,
+          [checkIn, checkOut, status, hoursWorked, sessionUser.id, reason, isLate, existingRecord.id],
         )
       } else {
         // Create a new record if it doesn't exist
+        // Check if employee is late based on their shift
+        let isLate = false
+        if (checkIn && status !== "absent") {
+          isLate = await checkIfLate(employeeId, new Date(checkIn))
+        }
+
         result = await db.query(
           `INSERT INTO attendance 
-           (employee_id, date, check_in, check_out, status, hours_worked, corrected_by, correction_time, correction_reason)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8) RETURNING *`,
+           (employee_id, date, check_in, check_out, status, hours_worked, corrected_by, correction_time, correction_reason, is_late)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9) RETURNING *`,
           [
             employeeId,
             date,
@@ -444,6 +575,7 @@ const attendanceController = {
               : null,
             sessionUser.id,
             reason,
+            isLate,
           ],
         )
       }

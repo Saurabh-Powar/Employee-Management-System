@@ -33,8 +33,9 @@ const createTables = async () => {
         date DATE NOT NULL,
         check_in TIMESTAMP WITH TIME ZONE,
         check_out TIMESTAMP WITH TIME ZONE,
-        status VARCHAR(20) NOT NULL CHECK (status IN ('check-in', 'check-out', 'absent')),
+        status VARCHAR(20) NOT NULL CHECK (status IN ('check-in', 'check-out', 'absent', 'late')),
         hours_worked DECIMAL(5, 2),
+        is_late BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         CONSTRAINT unique_attendance UNIQUE (employee_id, date)
       );
@@ -46,6 +47,19 @@ const createTables = async () => {
       ADD COLUMN IF NOT EXISTS corrected_by INTEGER REFERENCES users(id),
       ADD COLUMN IF NOT EXISTS correction_time TIMESTAMP,
       ADD COLUMN IF NOT EXISTS correction_reason TEXT;
+    `)
+
+    // Create shifts table for employee work schedules
+    await query(`
+      CREATE TABLE IF NOT EXISTS shifts (
+        id SERIAL PRIMARY KEY,
+        employee_id INTEGER REFERENCES employees(id) UNIQUE,
+        start_time VARCHAR(5) NOT NULL,
+        end_time VARCHAR(5) NOT NULL,
+        days TEXT[] NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `)
 
     // Create leaves table with approved_by and approved_at columns
@@ -192,13 +206,23 @@ const createTables = async () => {
       ON CONFLICT (email) DO NOTHING;
     `)
 
+    // Insert default shifts for employees
+    await query(`
+      INSERT INTO shifts (employee_id, start_time, end_time, days)
+      VALUES
+        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), '09:00', '17:00', ARRAY['monday', 'tuesday', 'wednesday', 'thursday', 'friday']),
+        ((SELECT id FROM employees WHERE email = 'sarah.connor@example.com'), '08:30', '16:30', ARRAY['monday', 'tuesday', 'wednesday', 'thursday', 'friday']),
+        ((SELECT id FROM employees WHERE email = 'bob.manager@example.com'), '09:00', '17:00', ARRAY['monday', 'tuesday', 'wednesday', 'thursday', 'friday'])
+      ON CONFLICT (employee_id) DO NOTHING;
+    `)
+
     // Insert attendance records
     await query(`
-      INSERT INTO attendance (employee_id, date, check_in, check_out, status, hours_worked)
+      INSERT INTO attendance (employee_id, date, check_in, check_out, status, hours_worked, is_late)
       VALUES
-        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), '2024-04-01', '2024-04-01 09:00:00', '2024-04-01 17:00:00', 'check-out', 8.0),
-        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), '2024-04-02', '2024-04-02 09:15:00', '2024-04-02 17:15:00', 'check-out', 8.0),
-        ((SELECT id FROM employees WHERE email = 'sarah.connor@example.com'), '2024-04-01', '2024-04-01 09:00:00', '2024-04-01 17:00:00', 'check-out', 8.0)
+        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), '2024-04-01', '2024-04-01 09:00:00', '2024-04-01 17:00:00', 'check-out', 8.0, FALSE),
+        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), '2024-04-02', '2024-04-02 09:15:00', '2024-04-02 17:15:00', 'check-out', 8.0, TRUE),
+        ((SELECT id FROM employees WHERE email = 'sarah.connor@example.com'), '2024-04-01', '2024-04-01 09:00:00', '2024-04-01 17:00:00', 'check-out', 8.0, TRUE)
       ON CONFLICT (employee_id, date) DO NOTHING;
     `)
 

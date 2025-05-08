@@ -15,7 +15,7 @@ import {
   Bell,
   CalendarIcon,
 } from "lucide-react"
-import "./Sidebars.css"
+import "./SidebarS.css"
 
 export default function Sidebar({ activeComponent, setActiveComponent, userRole }) {
   const [isOpen, setIsOpen] = useState(true)

@@ -1,6 +1,6 @@
 /* General Container Styles */
 .attendance-table-container {
-  padding: 20px;
+  padding: 24px;
   background-color: #ffffff;
   border-radius: 12px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
@@ -26,6 +26,9 @@
   margin-bottom: 15px;
   color: #444;
   font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 /* Table Styles */
@@ -85,6 +88,10 @@ tr.status-absent td {
   border-left: 3px solid #f44336;
 }
 
+tr.status-late td {
+  border-left: 3px solid #ff9800;
+}
+
 .status-badge.check-in {
   background-color: rgba(76, 175, 80, 0.1);
   color: #4caf50;
@@ -103,20 +110,40 @@ tr.status-absent td {
   border: 1px solid rgba(244, 67, 54, 0.2);
 }
 
-/* Attendance Actions */
-.attendance-actions {
-  background-color: #fff;
-  padding: 20px;
-  border-radius: 10px;
-  margin-bottom: 24px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-  border: 1px solid #f0f0f0;
+.status-badge.late {
+  background-color: rgba(255, 152, 0, 0.1);
+  color: #ff9800;
+  border: 1px solid rgba(255, 152, 0, 0.2);
 }
 
-.attendance-actions h3 {
-  font-size: 18px;
-  margin-bottom: 15px;
-  color: #444;
+/* Late check-in styling */
+.late-check-in {
+  color: #ff9800;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.late-icon {
+  color: #ff9800;
+}
+
+/* Attendance Actions */
+.attendance-actions-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.attendance-actions {
+  background-color: #fff;
+  padding: 16px;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  border: 1px solid #f0f0f0;
+  flex: 1;
 }
 
 .attendance-status-container {
@@ -140,6 +167,9 @@ tr.status-absent td {
   cursor: pointer;
   transition: all 0.2s;
   box-shadow: 0 2px 4px rgba(108, 92, 231, 0.2);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .attendance-status-btn:hover:not(:disabled) {
@@ -165,6 +195,30 @@ tr.status-absent td {
   margin-top: 5px;
 }
 
+.refresh-btn {
+  background-color: #f5f5f9;
+  color: #555;
+  border: 1px solid #e0e0e0;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 16px;
+}
+
+.refresh-btn:hover {
+  background-color: #e5e7eb;
+  transform: translateY(-1px);
+}
+
+.refresh-btn:active {
+  transform: translateY(0);
+}
+
 /* Messages */
 .error-message {
   background-color: rgba(244, 67, 54, 0.1);
@@ -173,6 +227,9 @@ tr.status-absent td {
   border-radius: 6px;
   margin-bottom: 15px;
   border-left: 4px solid #f44336;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .success-message {
@@ -182,6 +239,9 @@ tr.status-absent td {
   border-radius: 6px;
   margin-bottom: 15px;
   border-left: 4px solid #4caf50;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .loading-container {
@@ -320,5 +380,16 @@ tr.status-absent td {
   .attendance-table th,
   .attendance-table td {
     padding: 10px 8px;
+  }
+
+  .attendance-actions-bar {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .refresh-btn {
+    margin-left: 0;
+    width: 100%;
+    justify-content: center;
   }
 }

@@ -5,7 +5,7 @@ import { useAuth } from "../context/AuthContext"
 import api from "../services/api"
 import TaskForm from "./TaskForm"
 import TaskTimer from "./TaskTimer"
-import { Calendar, CheckCircle, Clock, Filter, Plus, Search, Tag } from 'lucide-react'
+import { Calendar, CheckCircle, Clock, Filter, Plus, Search, Tag } from "lucide-react"
 import "./TaskListS.css"
 
 function TaskList() {
@@ -38,14 +38,14 @@ function TaskList() {
       if (user.role === "employee" || user.role === "manager" || user.role === "admin") {
         // Get all employees and find the one matching the current user ID
         const response = await api.get("/employees")
-        const employee = response.data.find(emp => emp.user_id === user.id)
-        
+        const employee = response.data.find((emp) => emp.user_id === user.id)
+
         if (employee) {
           setCurrentEmployeeId(employee.id)
           return employee.id
         }
       }
-      
+
       return null
     } catch (err) {
       console.error("Error getting current employee ID:", err)
@@ -71,7 +71,7 @@ function TaskList() {
         response = await api.get("/tasks")
       } else {
         // For employees, fetch only their tasks
-        const employeeId = currentEmployeeId || await getCurrentEmployeeId()
+        const employeeId = currentEmployeeId || (await getCurrentEmployeeId())
 
         if (employeeId) {
           response = await api.get(`/tasks/${employeeId}`)
@@ -100,9 +100,9 @@ function TaskList() {
         const response = await api.get("/employees")
 
         // Filter out the current manager from the list
-        const currentManagerId = currentEmployeeId || await getCurrentEmployeeId()
+        const currentManagerId = currentEmployeeId || (await getCurrentEmployeeId())
         const filteredEmployees = response.data.filter(
-          (emp) => emp.id !== currentManagerId && emp.role !== "manager" && emp.role !== "admin"
+          (emp) => emp.id !== currentManagerId && emp.role !== "manager" && emp.role !== "admin",
         )
 
         setEmployees(filteredEmployees)
@@ -327,7 +327,7 @@ function TaskList() {
               ? "Try adjusting your search terms"
               : filter !== "all"
                 ? `No ${filter.replace("_", " ")} tasks found`
-                : user.role === "employee" 
+                : user.role === "employee"
                   ? "You don't have any tasks assigned to you yet"
                   : "No tasks have been created yet"}
           </p>

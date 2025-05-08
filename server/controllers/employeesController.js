@@ -38,11 +38,11 @@ const employeesController = {
     const { id } = req.params
     try {
       const result = await db.query("SELECT * FROM employees WHERE id = $1", [id])
-      
+
       if (result.rows.length === 0) {
         return res.status(404).json({ message: "Employee not found" })
       }
-      
+
       res.json(result.rows[0])
     } catch (error) {
       console.error("Error fetching employee:", error)
@@ -53,13 +53,13 @@ const employeesController = {
   // Create new employee (admin only)
   createEmployee: async (req, res) => {
     const { user_id, first_name, last_name, position, department, hire_date, salary } = req.body
-    
+
     try {
       const result = await db.query(
         "INSERT INTO employees (user_id, first_name, last_name, position, department, hire_date, salary) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
-        [user_id, first_name, last_name, position, department, hire_date, salary]
+        [user_id, first_name, last_name, position, department, hire_date, salary],
       )
-      
+
       res.status(201).json(result.rows[0])
     } catch (error) {
       console.error("Error creating employee:", error)
@@ -71,17 +71,17 @@ const employeesController = {
   updateEmployee: async (req, res) => {
     const { id } = req.params
     const { first_name, last_name, position, department, hire_date, salary } = req.body
-    
+
     try {
       const result = await db.query(
         "UPDATE employees SET first_name = $1, last_name = $2, position = $3, department = $4, hire_date = $5, salary = $6 WHERE id = $7 RETURNING *",
-        [first_name, last_name, position, department, hire_date, salary, id]
+        [first_name, last_name, position, department, hire_date, salary, id],
       )
-      
+
       if (result.rows.length === 0) {
         return res.status(404).json({ message: "Employee not found" })
       }
-      
+
       res.json(result.rows[0])
     } catch (error) {
       console.error("Error updating employee:", error)
@@ -92,20 +92,20 @@ const employeesController = {
   // Delete employee (admin only)
   deleteEmployee: async (req, res) => {
     const { id } = req.params
-    
+
     try {
       const result = await db.query("DELETE FROM employees WHERE id = $1 RETURNING *", [id])
-      
+
       if (result.rows.length === 0) {
         return res.status(404).json({ message: "Employee not found" })
       }
-      
+
       res.json({ message: "Employee deleted successfully" })
     } catch (error) {
       console.error("Error deleting employee:", error)
       res.status(500).json({ message: "Failed to delete employee" })
     }
-  }
+  },
 }
 
 module.exports = employeesController
