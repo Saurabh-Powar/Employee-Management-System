@@ -1,0 +1,68 @@
+/* NavbarS.css */
+.navbar {
+  background-color: #333;
+  color: #fff;
+  padding: 10px;
+  position: relative;
+}
+
+.navbar-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.menu-toggle {
+  display: none;
+  cursor: pointer;
+  font-size: 30px;
+}
+
+.menu-links {
+  display: flex;
+  gap: 20px;
+}
+
+.menu-links a {
+  text-decoration: none;
+  color: #fff;
+}
+
+.menu-links button {
+  background-color: #f44336;
+  color: white;
+  border: none;
+  padding: 10px;
+  cursor: pointer;
+}
+
+.menu-links.active {
+  display: block; /* Show menu when active */
+}
+
+@media (max-width: 768px) {
+  .menu-toggle {
+    display: block;
+  }
+
+  .menu-links {
+    display: none; /* Hide links by default */
+    position: absolute;
+    top: 50px;
+    left: 0;
+    width: 100%;
+    background-color: #333;
+    flex-direction: column;
+    align-items: center;
+    gap: 15px;
+    padding: 20px;
+  }
+
+  .menu-links.active {
+    display: flex; /* Show menu when active */
+  }
+
+  .menu-links a {
+    font-size: 18px;
+  }
+}

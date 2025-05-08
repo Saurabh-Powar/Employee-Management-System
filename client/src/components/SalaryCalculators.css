@@ -1,0 +1,82 @@
+.salary-calculator {
+  padding: 20px;
+  background-color: #f9f9f9;
+  border-radius: 8px;
+}
+
+.salary-controls {
+  margin-bottom: 20px;
+}
+
+.period-selector {
+  display: flex;
+  gap: 20px;
+}
+
+.form-group {
+  margin-bottom: 15px;
+}
+
+.salary-table-container {
+  overflow-x: auto;
+}
+
+.salary-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+}
+
+.salary-table th,
+.salary-table td {
+  padding: 12px;
+  text-align: left;
+  border: 1px solid #ddd;
+}
+
+.salary-table th {
+  background-color: #f4f4f4;
+}
+
+.salary-table td {
+  font-size: 1rem;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 5px 10px;
+  border-radius: 5px;
+  font-weight: bold;
+}
+
+.status-badge.active {
+  background-color: #4caf50;
+  color: white;
+}
+
+.status-badge.inactive {
+  background-color: #f44336;
+  color: white;
+}
+
+.loading {
+  text-align: center;
+  font-size: 1.2rem;
+}
+
+.error {
+  color: red;
+  font-weight: bold;
+  margin-bottom: 15px;
+}
+
+.success {
+  color: green;
+  font-weight: bold;
+  margin-bottom: 15px;
+}
+
+.no-data {
+  text-align: center;
+  color: #777;
+}

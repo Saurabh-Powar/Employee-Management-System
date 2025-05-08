@@ -1,0 +1,30 @@
+{
+  "name": "ems-perp",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "sql": "node sql.js",
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bcrypt": "^5.1.0",
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.0",
+    "express": "^4.18.2",
+    "express-session": "^1.17.2",
+    "jsonwebtoken": "^9.0.2",
+    "lru-cache": "^11.1.0",
+    "passport": "^0.6.0",
+    "passport-local": "^1.0.0",
+    "pg": "^8.7.3",
+    "react-router-dom": "^7.5.1",
+    "yarn": "^1.22.22"
+  },
+  "devDependencies": {},
+  "description": ""
+}
