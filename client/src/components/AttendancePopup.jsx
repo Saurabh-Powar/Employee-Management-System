@@ -46,7 +46,8 @@ function AttendancePopup({ onClose, status, setStatus, setAccessBlocked }) {
             // Check if employee is late
             if (shiftResponse.data) {
               const now = new Date()
-              const dayOfWeek = now.toLocaleDateString("en-US", { weekday: "lowercase" })
+              // Fix: Use "short" instead of "lowercase" for weekday format
+              const dayOfWeek = now.toLocaleDateString("en-US", { weekday: "short" }).toLowerCase()
 
               // Check if today is a working day
               if (shiftResponse.data.days.includes(dayOfWeek)) {
@@ -67,7 +68,7 @@ function AttendancePopup({ onClose, status, setStatus, setAccessBlocked }) {
             setEmployeeShift({
               start_time: "09:00",
               end_time: "17:00",
-              days: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+              days: ["mon", "tue", "wed", "thu", "fri"],
             })
           }
 

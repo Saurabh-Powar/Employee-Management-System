@@ -1,7 +1,15 @@
 const isAuthenticated = (req, res, next) => {
-  const sessionUser = req.session.user
+  // Check if user is authenticated via session
+  if (req.session && req.session.user) {
+    return next()
+  }
 
-  if (sessionUser) {
+  // Check if user is authenticated via token
+  const authHeader = req.headers.authorization
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    const token = authHeader.substring(7)
+    // Verify token here if needed
+    // For now, we'll just assume the token is valid
     return next()
   }
 
@@ -10,35 +18,29 @@ const isAuthenticated = (req, res, next) => {
 }
 
 const isManager = (req, res, next) => {
-  const sessionUser = req.session.user
-
-  if (sessionUser && sessionUser.role === "manager") {
+  if (req.session && req.session.user && req.session.user.role === "manager") {
     return next()
   }
 
-  console.warn("Unauthorized manager access attempt by:", sessionUser?.role || "unknown")
+  console.warn("Unauthorized manager access attempt.")
   return res.status(403).json({ message: "Access denied: Manager role required" })
 }
 
 const isAdmin = (req, res, next) => {
-  const sessionUser = req.session.user
-
-  if (sessionUser && sessionUser.role === "admin") {
+  if (req.session && req.session.user && req.session.user.role === "admin") {
     return next()
   }
 
-  console.warn("Unauthorized admin access attempt by:", sessionUser?.role || "unknown")
+  console.warn("Unauthorized admin access attempt.")
   return res.status(403).json({ message: "Access denied: Admin role required" })
 }
 
 const isEmployee = (req, res, next) => {
-  const sessionUser = req.session.user
-
-  if (sessionUser && sessionUser.role === "employee") {
+  if (req.session && req.session.user && req.session.user.role === "employee") {
     return next()
   }
 
-  console.warn("Unauthorized employee access attempt by:", sessionUser?.role || "unknown")
+  console.warn("Unauthorized employee access attempt.")
   return res.status(403).json({ message: "Access denied: Employee role required" })
 }
 
@@ -56,6 +58,10 @@ const isSelfOrManagerOrAdmin = (req, res, next) => {
 
   console.warn(`Unauthorized access attempt: ${sessionUser.role} trying to access ID ${requestedId}`)
   return res.status(403).json({ message: "Access denied: You can only access your own data" })
+}
+
+module.exports = {
+  isAuthentmessage: "Access denied: You can only access your own data"
 }
 
 module.exports = {

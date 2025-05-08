@@ -1,6 +1,6 @@
-// Fix the API service to properly handle task-related API calls
 import axios from "axios"
 
+// Create axios instance with base URL and credentials
 const api = axios.create({
   baseURL: "http://localhost:5000/api",
   withCredentials: true,
@@ -29,7 +29,7 @@ api.interceptors.response.use(
   (error) => {
     if (error.response && (error.response.status === 401 || error.response.status === 403)) {
       console.error("Authentication error:", error.response.data)
-      // Optionally redirect to login page
+      // Optionally redirect to login page if needed
       // window.location.href = '/login';
     }
     return Promise.reject(error)
@@ -39,14 +39,10 @@ api.interceptors.response.use(
 // Attendance-related helpers
 export const attendanceAPI = {
   checkIn: (employee_id) => api.post("/attendance/checkin", { employeeId: employee_id }),
-
   checkOut: (employee_id) => api.put("/attendance/checkout", { employeeId: employee_id }),
-
   markAbsent: (employee_id) => api.post("/attendance/absent", { employeeId: employee_id }),
-
-  getEmployeeAttendanceStatus: (employee_id) => api.get(`/attendance/${employee_id}`), // Used to get the status or records of a specific employee's attendance
-
-  getAllAttendanceRecords: () => api.get("/attendance"), // Fetches all attendance records for all employees
+  getEmployeeAttendanceStatus: (employee_id) => api.get(`/attendance/${employee_id}`),
+  getAllAttendanceRecords: () => api.get("/attendance"),
 }
 
 // Salary-related helpers
@@ -57,7 +53,7 @@ export const salaryAPI = {
   updateSalaryStatus: (id, status) => api.put(`/salaries/${id}`, { status }),
 }
 
-// Add leave API utilities
+// Leave API utilities
 export const leavesAPI = {
   getAllLeaves: () => api.get("/leaves"),
   getEmployeeLeaves: (employeeId) => api.get(`/leaves/${employeeId}`),
@@ -77,6 +73,15 @@ export const tasksAPI = {
   getTaskTimerHistory: (taskId) => api.get(`/tasks/${taskId}/timer/history`),
 }
 
+// Shift-related helpers
+export const shiftsAPI = {
+  getAllShifts: () => api.get("/shifts"),
+  getEmployeeShift: (employeeId) => api.get(`/shifts/${employeeId}`),
+  createShift: (data) => api.post("/shifts", data),
+  updateShift: (employeeId, data) => api.put(`/shifts/${employeeId}`, data),
+  deleteShift: (employeeId) => api.delete(`/shifts/${employeeId}`),
+}
+
 // Get today's attendance status for an employee or all employees for managers
 export const getTodayStatus = async (employeeId) => {
   try {
@@ -84,7 +89,7 @@ export const getTodayStatus = async (employeeId) => {
     return res.data
   } catch (error) {
     console.error("Error fetching today's status:", error)
-    throw error // Ensure that error is thrown to be handled at the caller level
+    throw error
   }
 }
 
@@ -93,9 +98,9 @@ export const getAttendanceForRole = async (employeeId, role) => {
   try {
     if (role === "manager" || role === "admin") {
       const res = await api.get(`/attendance/`)
-      return res.data // Returns all employees' attendance data
+      return res.data
     } else {
-      return await getTodayStatus(employeeId) // Returns only the specific employee's attendance data
+      return await getTodayStatus(employeeId)
     }
   } catch (error) {
     console.error("Error fetching attendance based on role:", error)

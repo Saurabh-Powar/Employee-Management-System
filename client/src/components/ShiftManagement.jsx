@@ -2,198 +2,224 @@
 
 import { useState, useEffect } from "react"
 import { useAuth } from "../context/AuthContext"
-import api from "../services/api"
-import { Clock, Calendar, Save, X, AlertTriangle } from "lucide-react"
+import api, { shiftsAPI } from "../services/api"
+import { Clock, Save, Trash2, RefreshCw, AlertCircle } from "lucide-react"
 import "./ShiftManagementS.css"
 
 function ShiftManagement() {
   const { user } = useAuth()
   const [employees, setEmployees] = useState([])
+  const [shifts, setShifts] = useState({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
-  const [editingShift, setEditingShift] = useState(null)
-  const [shiftData, setShiftData] = useState({
-    start_time: "",
-    end_time: "",
-    days: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+  const [selectedEmployee, setSelectedEmployee] = useState(null)
+  const [formData, setFormData] = useState({
+    start_time: "09:00",
+    end_time: "17:00",
+    days: ["mon", "tue", "wed", "thu", "fri"],
   })
 
+  // Days of the week for checkboxes
+  const daysOfWeek = [
+    { value: "mon", label: "Monday" },
+    { value: "tue", label: "Tuesday" },
+    { value: "wed", label: "Wednesday" },
+    { value: "thu", label: "Thursday" },
+    { value: "fri", label: "Friday" },
+    { value: "sat", label: "Saturday" },
+    { value: "sun", label: "Sunday" },
+  ]
+
+  // Fetch employees and their shifts
   useEffect(() => {
-    fetchEmployees()
+    const fetchData = async () => {
+      setLoading(true)
+      setError("")
+      try {
+        // Fetch employees
+        const employeesResponse = await api.get("/employees")
+        setEmployees(employeesResponse.data)
+
+        // Fetch shifts
+        const shiftsResponse = await shiftsAPI.getAllShifts()
+
+        // Convert shifts array to object with employee_id as key
+        const shiftsObj = shiftsResponse.data.reduce((acc, shift) => {
+          acc[shift.employee_id] = shift
+          return acc
+        }, {})
+
+        setShifts(shiftsObj)
+      } catch (err) {
+        console.error("Error fetching data:", err)
+        setError("Failed to load employees and shifts data")
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchData()
   }, [])
 
-  const fetchEmployees = async () => {
+  // Handle employee selection
+  const handleEmployeeSelect = (employeeId) => {
+    const employee = employees.find((emp) => emp.id === Number.parseInt(employeeId))
+    setSelectedEmployee(employee)
+
+    // If employee has a shift, load it into form
+    if (shifts[employeeId]) {
+      setFormData({
+        start_time: shifts[employeeId].start_time,
+        end_time: shifts[employeeId].end_time,
+        days: shifts[employeeId].days,
+      })
+    } else {
+      // Reset to default values
+      setFormData({
+        start_time: "09:00",
+        end_time: "17:00",
+        days: ["mon", "tue", "wed", "thu", "fri"],
+      })
+    }
+  }
+
+  // Handle form input changes
+  const handleInputChange = (e) => {
+    const { name, value } = e.target
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }))
+  }
+
+  // Handle checkbox changes for days
+  const handleDayChange = (day) => {
+    setFormData((prev) => {
+      const newDays = prev.days.includes(day) ? prev.days.filter((d) => d !== day) : [...prev.days, day]
+
+      return {
+        ...prev,
+        days: newDays,
+      }
+    })
+  }
+
+  // Save shift
+  const handleSaveShift = async () => {
+    if (!selectedEmployee) {
+      setError("Please select an employee")
+      return
+    }
+
+    setLoading(true)
+    setError("")
+    setSuccess("")
+
     try {
-      setLoading(true)
-      const response = await api.get("/employees")
+      const shiftData = {
+        ...formData,
+        employee_id: selectedEmployee.id,
+      }
 
-      // Filter out managers and admins if the current user is a manager
-      let filteredEmployees = response.data
-      if (user.role === "manager") {
-        // Get the manager's employee record to exclude themselves
-        const managerResponse = await api.get("/employees/current")
-        const managerId = managerResponse.data?.id
+      // Check if employee already has a shift
+      if (shifts[selectedEmployee.id]) {
+        // Update existing shift
+        await shiftsAPI.updateShift(selectedEmployee.id, shiftData)
+        setSuccess(`Shift updated for ${selectedEmployee.first_name} ${selectedEmployee.last_name}`)
+      } else {
+        // Create new shift
+        await shiftsAPI.createShift(shiftData)
+        setSuccess(`Shift created for ${selectedEmployee.first_name} ${selectedEmployee.last_name}`)
+      }
 
-        filteredEmployees = response.data.filter((emp) => {
-          // Exclude the manager and any admin/manager users
-          return emp.id !== managerId && emp.role !== "admin" && emp.role !== "manager"
+      // Refresh shifts data
+      const shiftsResponse = await shiftsAPI.getAllShifts()
+      const shiftsObj = shiftsResponse.data.reduce((acc, shift) => {
+        acc[shift.employee_id] = shift
+        return acc
+      }, {})
+      setShifts(shiftsObj)
+    } catch (err) {
+      console.error("Error saving shift:", err)
+      setError("Failed to save shift. Please try again.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Delete shift
+  const handleDeleteShift = async () => {
+    if (!selectedEmployee || !shifts[selectedEmployee.id]) {
+      setError("No shift to delete")
+      return
+    }
+
+    setLoading(true)
+    setError("")
+    setSuccess("")
+
+    try {
+      await shiftsAPI.deleteShift(selectedEmployee.id)
+      setSuccess(`Shift deleted for ${selectedEmployee.first_name} ${selectedEmployee.last_name}`)
+
+      // Remove from local state
+      const newShifts = { ...shifts }
+      delete newShifts[selectedEmployee.id]
+      setShifts(newShifts)
+
+      // Reset form
+      setFormData({
+        start_time: "09:00",
+        end_time: "17:00",
+        days: ["mon", "tue", "wed", "thu", "fri"],
+      })
+    } catch (err) {
+      console.error("Error deleting shift:", err)
+      setError("Failed to delete shift. Please try again.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Refresh data
+  const handleRefresh = async () => {
+    setLoading(true)
+    setError("")
+    setSuccess("")
+
+    try {
+      // Fetch shifts
+      const shiftsResponse = await shiftsAPI.getAllShifts()
+      const shiftsObj = shiftsResponse.data.reduce((acc, shift) => {
+        acc[shift.employee_id] = shift
+        return acc
+      }, {})
+      setShifts(shiftsObj)
+
+      // Update form if employee is selected
+      if (selectedEmployee && shiftsObj[selectedEmployee.id]) {
+        setFormData({
+          start_time: shiftsObj[selectedEmployee.id].start_time,
+          end_time: shiftsObj[selectedEmployee.id].end_time,
+          days: shiftsObj[selectedEmployee.id].days,
         })
       }
 
-      // Fetch shift data for each employee
-      const employeesWithShifts = await Promise.all(
-        filteredEmployees.map(async (emp) => {
-          try {
-            const shiftResponse = await api.get(`/shifts/${emp.id}`)
-            return {
-              ...emp,
-              shift: shiftResponse.data || {
-                start_time: "09:00",
-                end_time: "17:00",
-                days: ["monday", "tuesday", "wednesday", "thursday", "friday"],
-              },
-            }
-          } catch (err) {
-            console.error(`Error fetching shift for employee ${emp.id}:`, err)
-            return {
-              ...emp,
-              shift: {
-                start_time: "09:00",
-                end_time: "17:00",
-                days: ["monday", "tuesday", "wednesday", "thursday", "friday"],
-              },
-            }
-          }
-        }),
-      )
-
-      setEmployees(employeesWithShifts)
-      setLoading(false)
+      setSuccess("Data refreshed successfully")
     } catch (err) {
-      console.error("Error fetching employees:", err)
-      setError("Failed to load employees. Please try again.")
+      console.error("Error refreshing data:", err)
+      setError("Failed to refresh data")
+    } finally {
       setLoading(false)
     }
   }
 
-  const handleEditShift = (employee) => {
-    setEditingShift(employee.id)
-    setShiftData({
-      start_time: employee.shift?.start_time || "09:00",
-      end_time: employee.shift?.end_time || "17:00",
-      days: employee.shift?.days || ["monday", "tuesday", "wednesday", "thursday", "friday"],
-    })
-  }
-
-  const handleCancelEdit = () => {
-    setEditingShift(null)
-    setShiftData({
-      start_time: "",
-      end_time: "",
-      days: ["monday", "tuesday", "wednesday", "thursday", "friday"],
-    })
-  }
-
-  const handleSaveShift = async (employeeId) => {
-    try {
-      setLoading(true)
-
-      // Validate times
-      if (!shiftData.start_time || !shiftData.end_time) {
-        setError("Start and end times are required")
-        setLoading(false)
-        return
-      }
-
-      // Convert to 24-hour format if needed
-      const startTime = shiftData.start_time
-      const endTime = shiftData.end_time
-
-      // Validate that end time is after start time
-      if (startTime >= endTime) {
-        setError("End time must be after start time")
-        setLoading(false)
-        return
-      }
-
-      const payload = {
-        employee_id: employeeId,
-        start_time: startTime,
-        end_time: endTime,
-        days: shiftData.days,
-      }
-
-      await api.post("/shifts", payload)
-
-      setSuccess(`Shift updated successfully for employee #${employeeId}`)
-      setTimeout(() => setSuccess(""), 3000)
-
-      // Update the local state
-      setEmployees(employees.map((emp) => (emp.id === employeeId ? { ...emp, shift: payload } : emp)))
-
-      setEditingShift(null)
-      setLoading(false)
-    } catch (err) {
-      console.error("Error saving shift:", err)
-      setError(err.response?.data?.message || "Failed to save shift. Please try again.")
-      setLoading(false)
-    }
-  }
-
-  const handleDayToggle = (day) => {
-    if (shiftData.days.includes(day)) {
-      setShiftData({
-        ...shiftData,
-        days: shiftData.days.filter((d) => d !== day),
-      })
-    } else {
-      setShiftData({
-        ...shiftData,
-        days: [...shiftData.days, day],
-      })
-    }
-  }
-
-  const formatTime = (timeString) => {
-    try {
-      // Handle cases where timeString might be in different formats
-      if (!timeString) return "Not set"
-
-      // If it's already in HH:MM format, return it
-      if (/^\d{1,2}:\d{2}$/.test(timeString)) {
-        return timeString
-      }
-
-      // If it's a date string, extract the time
-      const date = new Date(timeString)
-      if (isNaN(date)) return timeString
-
-      return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true })
-    } catch (err) {
-      console.error("Error formatting time:", err)
-      return timeString || "Not set"
-    }
-  }
-
-  const getDayLabel = (day) => {
-    const labels = {
-      monday: "Mon",
-      tuesday: "Tue",
-      wednesday: "Wed",
-      thursday: "Thu",
-      friday: "Fri",
-      saturday: "Sat",
-      sunday: "Sun",
-    }
-    return labels[day] || day
-  }
-
-  if (!user || (user.role !== "manager" && user.role !== "admin")) {
+  if (loading && !selectedEmployee) {
     return (
-      <div className="unauthorized-message">
-        <AlertTriangle size={24} />
-        <p>You don't have permission to manage employee shifts.</p>
+      <div className="loading-container">
+        <div className="loading-spinner"></div>
+        <p>Loading shift management data...</p>
       </div>
     )
   }
@@ -201,123 +227,145 @@ function ShiftManagement() {
   return (
     <div className="shift-management-container">
       <div className="shift-management-header">
-        <h2>Employee Shift Management</h2>
-        <p className="shift-management-description">
-          Set and manage employee work schedules. Changes to shift times will affect attendance tracking.
-        </p>
+        <h2>Shift Management</h2>
+        <button className="refresh-btn" onClick={handleRefresh} disabled={loading}>
+          <RefreshCw size={16} />
+          Refresh
+        </button>
       </div>
 
       {error && <div className="error-message">{error}</div>}
       {success && <div className="success-message">{success}</div>}
 
-      {loading && !employees.length ? (
-        <div className="loading-container">
-          <div className="loading-spinner"></div>
-          <p>Loading employee data...</p>
+      <div className="shift-management-content">
+        <div className="employee-selection">
+          <h3>Select Employee</h3>
+          <select
+            value={selectedEmployee ? selectedEmployee.id : ""}
+            onChange={(e) => handleEmployeeSelect(e.target.value)}
+            disabled={loading}
+          >
+            <option value="">-- Select an employee --</option>
+            {employees.map((employee) => (
+              <option key={employee.id} value={employee.id}>
+                {employee.first_name} {employee.last_name} - {employee.department}
+              </option>
+            ))}
+          </select>
         </div>
-      ) : (
-        <div className="employee-shifts-grid">
-          {employees.map((employee) => (
-            <div key={employee.id} className="employee-shift-card">
-              <div className="employee-info">
-                <h3>
-                  {employee.first_name} {employee.last_name}
-                </h3>
-                <p className="employee-position">{employee.position || "Employee"}</p>
-                <p className="employee-department">{employee.department || "N/A"}</p>
+
+        {selectedEmployee && (
+          <div className="shift-form">
+            <h3>
+              Shift Schedule for {selectedEmployee.first_name} {selectedEmployee.last_name}
+              {shifts[selectedEmployee.id] && <span className="shift-exists-badge">Shift Exists</span>}
+            </h3>
+
+            <div className="form-group">
+              <label htmlFor="start_time">Start Time:</label>
+              <input
+                type="time"
+                id="start_time"
+                name="start_time"
+                value={formData.start_time}
+                onChange={handleInputChange}
+                disabled={loading}
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="end_time">End Time:</label>
+              <input
+                type="time"
+                id="end_time"
+                name="end_time"
+                value={formData.end_time}
+                onChange={handleInputChange}
+                disabled={loading}
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Working Days:</label>
+              <div className="days-checkboxes">
+                {daysOfWeek.map((day) => (
+                  <div key={day.value} className="day-checkbox">
+                    <input
+                      type="checkbox"
+                      id={`day-${day.value}`}
+                      checked={formData.days.includes(day.value)}
+                      onChange={() => handleDayChange(day.value)}
+                      disabled={loading}
+                    />
+                    <label htmlFor={`day-${day.value}`}>{day.label}</label>
+                  </div>
+                ))}
               </div>
+            </div>
 
-              {editingShift === employee.id ? (
-                <div className="shift-edit-form">
-                  <div className="form-group">
-                    <label>
-                      <Clock size={14} className="icon" />
-                      Start Time
-                    </label>
-                    <input
-                      type="time"
-                      value={shiftData.start_time}
-                      onChange={(e) => setShiftData({ ...shiftData, start_time: e.target.value })}
-                    />
-                  </div>
+            <div className="shift-actions">
+              <button className="save-shift-btn" onClick={handleSaveShift} disabled={loading}>
+                <Save size={16} />
+                {shifts[selectedEmployee.id] ? "Update Shift" : "Create Shift"}
+              </button>
 
-                  <div className="form-group">
-                    <label>
-                      <Clock size={14} className="icon" />
-                      End Time
-                    </label>
-                    <input
-                      type="time"
-                      value={shiftData.end_time}
-                      onChange={(e) => setShiftData({ ...shiftData, end_time: e.target.value })}
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label>
-                      <Calendar size={14} className="icon" />
-                      Working Days
-                    </label>
-                    <div className="days-selector">
-                      {["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"].map((day) => (
-                        <button
-                          key={day}
-                          type="button"
-                          className={`day-button ${shiftData.days.includes(day) ? "selected" : ""}`}
-                          onClick={() => handleDayToggle(day)}
-                        >
-                          {getDayLabel(day)}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="shift-edit-actions">
-                    <button className="save-btn" onClick={() => handleSaveShift(employee.id)} disabled={loading}>
-                      <Save size={14} />
-                      Save
-                    </button>
-                    <button className="cancel-btn" onClick={handleCancelEdit} disabled={loading}>
-                      <X size={14} />
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="shift-display">
-                  <div className="shift-time">
-                    <Clock size={16} className="icon" />
-                    <span>
-                      {formatTime(employee.shift?.start_time)} - {formatTime(employee.shift?.end_time)}
-                    </span>
-                  </div>
-
-                  <div className="shift-days">
-                    <Calendar size={16} className="icon" />
-                    <div className="days-pills">
-                      {(employee.shift?.days || []).map((day) => (
-                        <span key={day} className="day-pill">
-                          {getDayLabel(day)}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-
-                  <button className="edit-shift-btn" onClick={() => handleEditShift(employee)}>
-                    Edit Shift
-                  </button>
-                </div>
+              {shifts[selectedEmployee.id] && (
+                <button className="delete-shift-btn" onClick={handleDeleteShift} disabled={loading}>
+                  <Trash2 size={16} />
+                  Delete Shift
+                </button>
               )}
             </div>
-          ))}
-        </div>
-      )}
+          </div>
+        )}
 
-      {employees.length === 0 && !loading && (
-        <div className="no-employees">
-          <p>No employees found to manage shifts.</p>
+        <div className="shift-info-panel">
+          <h3>Shift Information</h3>
+
+          <div className="info-card">
+            <div className="info-icon">
+              <Clock size={20} />
+            </div>
+            <div className="info-content">
+              <h4>Working Hours</h4>
+              <p>Set the daily start and end times for each employee's shift.</p>
+            </div>
+          </div>
+
+          <div className="info-card">
+            <div className="info-icon">
+              <AlertCircle size={20} />
+            </div>
+            <div className="info-content">
+              <h4>Attendance Impact</h4>
+              <p>Employees checking in after their shift start time will be marked as late.</p>
+            </div>
+          </div>
+
+          <div className="shift-summary">
+            <h4>Current Shifts</h4>
+            <p>{Object.keys(shifts).length} employees have assigned shifts</p>
+            <ul className="shift-summary-list">
+              {Object.values(shifts).map((shift) => {
+                const employee = employees.find((emp) => emp.id === shift.employee_id)
+                return employee ? (
+                  <li key={shift.id} className="shift-summary-item">
+                    <span className="employee-name">
+                      {employee.first_name} {employee.last_name}
+                    </span>
+                    <span className="shift-time">
+                      {shift.start_time} - {shift.end_time}
+                    </span>
+                    <span className="shift-days">
+                      {shift.days.map((d) => d.substring(0, 1).toUpperCase()).join(", ")}
+                    </span>
+                  </li>
+                ) : null
+              })}
+            </ul>
+          </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }

@@ -206,7 +206,8 @@ function AttendanceTable({ allowMarking = false }) {
 
     // Get the day of the week for this attendance record
     const attendanceDate = new Date(record.date)
-    const dayOfWeek = attendanceDate.toLocaleDateString("en-US", { weekday: "lowercase" })
+    // Fix: Use "short" instead of "lowercase" for weekday format
+    const dayOfWeek = attendanceDate.toLocaleDateString("en-US", { weekday: "short" }).toLowerCase()
 
     // Check if this day is a working day for this employee
     if (!shift.days.includes(dayOfWeek)) return false

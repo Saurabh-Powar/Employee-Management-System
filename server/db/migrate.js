@@ -3,6 +3,21 @@ const bcrypt = require("bcrypt")
 
 const createTables = async () => {
   try {
+    // Drop existing tables if they exist (for reset)
+    await query(`
+      DROP TABLE IF EXISTS task_timers CASCADE;
+      DROP TABLE IF EXISTS tasks CASCADE;
+      DROP TABLE IF EXISTS notifications CASCADE;
+      DROP TABLE IF EXISTS salaries CASCADE;
+      DROP TABLE IF EXISTS performance CASCADE;
+      DROP TABLE IF EXISTS leaves CASCADE;
+      DROP TABLE IF EXISTS shifts CASCADE;
+      DROP TABLE IF EXISTS attendance CASCADE;
+      DROP TABLE IF EXISTS employees CASCADE;
+      DROP TABLE IF EXISTS users CASCADE;
+    `)
+
+    // Create tables
     await query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -168,6 +183,22 @@ const createTables = async () => {
       "employee",
     ])
 
+    // Insert additional test users
+    const hashedPasswordEmployee2 = await bcrypt.hash("employee456", 10)
+    const hashedPasswordEmployee3 = await bcrypt.hash("employee789", 10)
+
+    await query("INSERT INTO users (username, password, role) VALUES ($1, $2, $3) ON CONFLICT (username) DO NOTHING", [
+      "employee2",
+      hashedPasswordEmployee2,
+      "employee",
+    ])
+
+    await query("INSERT INTO users (username, password, role) VALUES ($1, $2, $3) ON CONFLICT (username) DO NOTHING", [
+      "employee3",
+      hashedPasswordEmployee3,
+      "employee",
+    ])
+
     // Insert default employees linked to users
     await query(`
       INSERT INTO employees (user_id, first_name, last_name, email, position, department, joining_date, base_salary)
@@ -200,38 +231,62 @@ const createTables = async () => {
     await query(`
       INSERT INTO employees (user_id, first_name, last_name, email, position, department, joining_date, base_salary)
       SELECT 
-        (SELECT id FROM users WHERE username = 'employee'),
+        (SELECT id FROM users WHERE username = 'employee2'),
         'Sarah', 'Connor', 'sarah.connor@example.com',
         'Software Engineer', 'IT', '2024-03-15', 65000.00
       ON CONFLICT (email) DO NOTHING;
     `)
 
-    // Insert default shifts for employees
+    await query(`
+      INSERT INTO employees (user_id, first_name, last_name, email, position, department, joining_date, base_salary)
+      SELECT 
+        (SELECT id FROM users WHERE username = 'employee3'),
+        'Michael', 'Johnson', 'michael.johnson@example.com',
+        'QA Engineer', 'IT', '2024-04-01', 62000.00
+      ON CONFLICT (email) DO NOTHING;
+    `)
+
+    // Insert default shifts for employees with correct day format (mon, tue, wed, thu, fri)
     await query(`
       INSERT INTO shifts (employee_id, start_time, end_time, days)
       VALUES
-        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), '09:00', '17:00', ARRAY['monday', 'tuesday', 'wednesday', 'thursday', 'friday']),
-        ((SELECT id FROM employees WHERE email = 'sarah.connor@example.com'), '08:30', '16:30', ARRAY['monday', 'tuesday', 'wednesday', 'thursday', 'friday']),
-        ((SELECT id FROM employees WHERE email = 'bob.manager@example.com'), '09:00', '17:00', ARRAY['monday', 'tuesday', 'wednesday', 'thursday', 'friday'])
+        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), '09:00', '17:00', ARRAY['mon', 'tue', 'wed', 'thu', 'fri']),
+        ((SELECT id FROM employees WHERE email = 'sarah.connor@example.com'), '08:30', '16:30', ARRAY['mon', 'tue', 'wed', 'thu', 'fri']),
+        ((SELECT id FROM employees WHERE email = 'bob.manager@example.com'), '09:00', '17:00', ARRAY['mon', 'tue', 'wed', 'thu', 'fri']),
+        ((SELECT id FROM employees WHERE email = 'michael.johnson@example.com'), '10:00', '18:00', ARRAY['mon', 'tue', 'wed', 'thu', 'fri'])
       ON CONFLICT (employee_id) DO NOTHING;
     `)
 
+    // Get current date for attendance records
+    const today = new Date()
+    const yesterday = new Date(today)
+    yesterday.setDate(yesterday.getDate() - 1)
+
+    const todayStr = today.toISOString().split("T")[0]
+    const yesterdayStr = yesterday.toISOString().split("T")[0]
+
     // Insert attendance records
-    await query(`
+    await query(
+      `
       INSERT INTO attendance (employee_id, date, check_in, check_out, status, hours_worked, is_late)
       VALUES
-        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), '2024-04-01', '2024-04-01 09:00:00', '2024-04-01 17:00:00', 'check-out', 8.0, FALSE),
-        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), '2024-04-02', '2024-04-02 09:15:00', '2024-04-02 17:15:00', 'check-out', 8.0, TRUE),
-        ((SELECT id FROM employees WHERE email = 'sarah.connor@example.com'), '2024-04-01', '2024-04-01 09:00:00', '2024-04-01 17:00:00', 'check-out', 8.0, TRUE)
+        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), $1::DATE, ($1::DATE || ' 09:00:00')::TIMESTAMP WITH TIME ZONE, ($1::DATE || ' 17:00:00')::TIMESTAMP WITH TIME ZONE, 'check-out', 8.0, FALSE),
+        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), $2::DATE, ($2::DATE || ' 09:15:00')::TIMESTAMP WITH TIME ZONE, ($2::DATE || ' 17:15:00')::TIMESTAMP WITH TIME ZONE, 'check-out', 8.0, TRUE),
+        ((SELECT id FROM employees WHERE email = 'sarah.connor@example.com'), $1::DATE, ($1::DATE || ' 08:45:00')::TIMESTAMP WITH TIME ZONE, ($1::DATE || ' 16:45:00')::TIMESTAMP WITH TIME ZONE, 'check-out', 8.0, TRUE),
+        ((SELECT id FROM employees WHERE email = 'michael.johnson@example.com'), $1::DATE, ($1::DATE || ' 10:05:00')::TIMESTAMP WITH TIME ZONE, ($1::DATE || ' 18:05:00')::TIMESTAMP WITH TIME ZONE, 'check-out', 8.0, TRUE),
+        ((SELECT id FROM employees WHERE email = 'bob.manager@example.com'), $1::DATE, ($1::DATE || ' 09:00:00')::TIMESTAMP WITH TIME ZONE, ($1::DATE || ' 17:30:00')::TIMESTAMP WITH TIME ZONE, 'check-out', 8.5, FALSE)
       ON CONFLICT (employee_id, date) DO NOTHING;
-    `)
+      `,
+      [yesterdayStr, todayStr],
+    )
 
     // Insert leave records
     await query(`
       INSERT INTO leaves (employee_id, start_date, end_date, reason, status)
       VALUES
-        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), '2024-04-05', '2024-04-07', 'Sick leave', 'approved'),
-        ((SELECT id FROM employees WHERE email = 'sarah.connor@example.com'), '2024-04-10', '2024-04-12', 'Vacation', 'pending')
+        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), CURRENT_DATE + INTERVAL '5 days', CURRENT_DATE + INTERVAL '7 days', 'Vacation', 'pending'),
+        ((SELECT id FROM employees WHERE email = 'sarah.connor@example.com'), CURRENT_DATE + INTERVAL '10 days', CURRENT_DATE + INTERVAL '12 days', 'Family event', 'pending'),
+        ((SELECT id FROM employees WHERE email = 'michael.johnson@example.com'), CURRENT_DATE + INTERVAL '3 days', CURRENT_DATE + INTERVAL '4 days', 'Medical appointment', 'pending')
       ON CONFLICT (employee_id, start_date) DO NOTHING;
     `)
 
@@ -239,27 +294,39 @@ const createTables = async () => {
     await query(`
       INSERT INTO performance (employee_id, evaluation_date, rating, comments, evaluated_by)
       VALUES
-        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), '2024-03-30', 4, 'Good performance overall', (SELECT id FROM users WHERE username = 'manager')),
-        ((SELECT id FROM employees WHERE email = 'sarah.connor@example.com'), '2024-03-30', 5, 'Excellent performance', (SELECT id FROM users WHERE username = 'manager'))
+        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), CURRENT_DATE - INTERVAL '7 days', 4, 'Good performance overall', (SELECT id FROM users WHERE username = 'manager')),
+        ((SELECT id FROM employees WHERE email = 'sarah.connor@example.com'), CURRENT_DATE - INTERVAL '7 days', 5, 'Excellent performance', (SELECT id FROM users WHERE username = 'manager')),
+        ((SELECT id FROM employees WHERE email = 'michael.johnson@example.com'), CURRENT_DATE - INTERVAL '7 days', 3, 'Satisfactory performance', (SELECT id FROM users WHERE username = 'manager'))
       ON CONFLICT (employee_id, evaluation_date) DO NOTHING;
     `)
 
     // Insert salary records
-    await query(`
+    const currentMonth = new Date().getMonth() + 1 // JavaScript months are 0-indexed
+    const currentYear = new Date().getFullYear()
+
+    await query(
+      `
       INSERT INTO salaries (employee_id, month, year, base_amount, total_amount, status)
       VALUES
-        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), 4, 2024, 60000.00, 60000.00, 'pending'),
-        ((SELECT id FROM employees WHERE email = 'sarah.connor@example.com'), 4, 2024, 65000.00, 65000.00, 'pending')
+        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), $1, $2, 5000.00, 5000.00, 'pending'),
+        ((SELECT id FROM employees WHERE email = 'sarah.connor@example.com'), $1, $2, 5416.67, 5416.67, 'pending'),
+        ((SELECT id FROM employees WHERE email = 'michael.johnson@example.com'), $1, $2, 5166.67, 5166.67, 'pending'),
+        ((SELECT id FROM employees WHERE email = 'bob.manager@example.com'), $1, $2, 6250.00, 6250.00, 'pending')
       ON CONFLICT (employee_id, month, year) DO NOTHING;
-    `)
+    `,
+      [currentMonth, currentYear],
+    )
 
     // Insert notifications
     await query(`
       INSERT INTO notifications (user_id, title, message, type)
       VALUES
         ((SELECT id FROM users WHERE username = 'employee'), 'Attendance Reminder', 'Please check in for today', 'reminder'),
-        ((SELECT id FROM users WHERE username = 'manager'), 'Performance Review', 'Your performance review is ready', 'alert')
-      ON CONFLICT (user_id, title) DO NOTHING;
+        ((SELECT id FROM users WHERE username = 'employee2'), 'Leave Request Update', 'Your leave request is pending approval', 'update'),
+        ((SELECT id FROM users WHERE username = 'employee3'), 'Performance Review', 'Your performance review is scheduled next week', 'alert'),
+        ((SELECT id FROM users WHERE username = 'manager'), 'Leave Requests', 'You have 3 pending leave requests to review', 'alert'),
+        ((SELECT id FROM users WHERE username = 'admin'), 'System Update', 'System maintenance scheduled this weekend', 'update')
+      ON CONFLICT DO NOTHING;
     `)
 
     // Add some sample tasks
@@ -270,7 +337,7 @@ const createTables = async () => {
          'Complete Project Documentation', 
          'Write comprehensive documentation for the new feature', 
          'medium', 
-         NOW() + INTERVAL '3 days', 
+         CURRENT_DATE + INTERVAL '3 days', 
          'assigned', 
          (SELECT id FROM users WHERE username = 'manager'), 
          0),
@@ -278,10 +345,18 @@ const createTables = async () => {
          'Fix Login Bug', 
          'Investigate and fix the login issue reported by users', 
          'high', 
-         NOW() + INTERVAL '1 day', 
+         CURRENT_DATE + INTERVAL '1 day', 
          'in_progress', 
          (SELECT id FROM users WHERE username = 'manager'), 
-         3600)
+         3600),
+        ((SELECT id FROM employees WHERE email = 'michael.johnson@example.com'), 
+         'Test New Feature', 
+         'Perform comprehensive testing of the new payment feature', 
+         'high', 
+         CURRENT_DATE + INTERVAL '2 days', 
+         'assigned', 
+         (SELECT id FROM users WHERE username = 'manager'), 
+         0)
       ON CONFLICT DO NOTHING;
     `)
 
