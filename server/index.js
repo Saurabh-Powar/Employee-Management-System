@@ -1,11 +1,7 @@
 const express = require("express")
-const cors = require("cors")
-const bodyParser = require("body-parser")
-const createTables = require("./db/migrate")
 const session = require("express-session")
-const passport = require("passport")
-require("dotenv").config()
-
+const cors = require("cors")
+const createTables = require("./db/migrate")
 const authRoutes = require("./routes/authRoutes")
 const employeesRoutes = require("./routes/employeesRoutes")
 const attendanceRoutes = require("./routes/attendanceRoutes")
@@ -14,40 +10,46 @@ const performanceRoutes = require("./routes/performanceRoutes")
 const salariesRoutes = require("./routes/salariesRoutes")
 const notificationsRoutes = require("./routes/notificationsRoutes")
 const tasksRoutes = require("./routes/tasksRoutes")
+const shiftsRoutes = require("./routes/shiftsRoutes")
+
+// Load environment variables
+const PORT = process.env.PORT || 5000
+const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000"
+const SESSION_SECRET = process.env.SESSION_SECRET || "your_session_secret"
 
 const app = express()
-const PORT = process.env.PORT || 5000
 
-// ✅ 1. CORS (allow frontend + send credentials)
+// Middleware
+app.use(express.json())
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || "http://localhost:3000",
+    origin: CLIENT_URL,
     credentials: true,
   }),
 )
 
-// ✅ 2. bodyParser
-app.use(bodyParser.json())
-app.use(bodyParser.urlencoded({ extended: true }))
-
-// ✅ 3. Sessions
+// Session configuration
 app.use(
   session({
-    secret: process.env.SESSION_SECRET || "yoursecret",
+    secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: false, // true in production with https
+      secure: process.env.NODE_ENV === "production",
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      sameSite: "lax",
     },
   }),
 )
 
-// ✅ 4. Passport
-app.use(passport.initialize())
-app.use(passport.session())
+// Create database tables if they don't exist
+createTables()
+  .then(() => {
+    console.log("Database tables created successfully")
+  })
+  .catch((err) => {
+    console.error("Error creating database tables:", err)
+  })
 
 // Routes
 app.use("/api/auth", authRoutes)
@@ -58,15 +60,14 @@ app.use("/api/performance", performanceRoutes)
 app.use("/api/salaries", salariesRoutes)
 app.use("/api/notifications", notificationsRoutes)
 app.use("/api/tasks", tasksRoutes)
+app.use("/api/shifts", shiftsRoutes)
 
-// Create tables and start the server
-createTables()
-  .then(() => {
-    app.listen(PORT, () => {
-      console.log(`Server running on http://localhost:${PORT}`)
-    })
-  })
-  .catch((err) => {
-    console.error("Could not start the server:", err)
-    process.exit(1) // Exit with error code
-  })
+// Health check endpoint
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "ok" })
+})
+
+// Start server
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`)
+})

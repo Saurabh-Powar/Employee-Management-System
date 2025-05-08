@@ -1,10 +1,21 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { BarChart3, Calendar, CheckSquare,
-   Clock, Home, Menu, User, Users, X, 
-   DollarSign, Bell } from "lucide-react"
-import "./SidebarS.css"
+import {
+  BarChart3,
+  Calendar,
+  CheckSquare,
+  Clock,
+  Home,
+  Menu,
+  User,
+  Users,
+  X,
+  DollarSign,
+  Bell,
+  CalendarIcon,
+} from "lucide-react"
+import "./Sidebars.css"
 
 export default function Sidebar({ activeComponent, setActiveComponent, userRole }) {
   const [isOpen, setIsOpen] = useState(true)
@@ -29,7 +40,7 @@ export default function Sidebar({ activeComponent, setActiveComponent, userRole 
 
   const toggleSidebar = () => setIsOpen(!isOpen)
 
-  // Update the getMenuItems function to include tasks
+  // Update the getMenuItems function to include shifts
   const getMenuItems = () => {
     // Base items for all roles
     const baseItems = [
@@ -53,6 +64,11 @@ export default function Sidebar({ activeComponent, setActiveComponent, userRole 
           name: "Attendance",
           icon: <Clock size={20} />,
           value: "attendance",
+        },
+        {
+          name: "Shifts",
+          icon: <CalendarIcon size={20} />,
+          value: "shifts",
         },
         {
           name: "Leave Requests",
@@ -97,6 +113,11 @@ export default function Sidebar({ activeComponent, setActiveComponent, userRole 
           value: "attendance",
         },
         {
+          name: "Shifts",
+          icon: <CalendarIcon size={20} />,
+          value: "shifts",
+        },
+        {
           name: "Leave Requests",
           icon: <Calendar size={20} />,
           value: "leaves",
@@ -131,6 +152,11 @@ export default function Sidebar({ activeComponent, setActiveComponent, userRole 
         name: "My Attendance",
         icon: <Clock size={20} />,
         value: "attendance",
+      },
+      {
+        name: "My Schedule",
+        icon: <CalendarIcon size={20} />,
+        value: "shifts",
       },
       {
         name: "Apply Leave",
