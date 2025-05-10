@@ -1,6 +1,18 @@
 const pool = require("../db/sql")
-const { io } = require("../websocket")
+const websocket = require("../websocket")
 const { calculateWorkHours, isLate, calculateOvertime } = require("../utils/attendanceUtils")
+
+// Safe access to io - will use the initialized instance or a dummy emitter
+const getIo = () => {
+  try {
+    return websocket.io;
+  } catch (error) {
+    console.warn("WebSocket not initialized yet, using dummy emitter");
+    return {
+      emit: () => console.log("WebSocket not initialized, event not emitted")
+    };
+  }
+};
 
 // Get all attendance records
 const getAllAttendance = async (req, res) => {
@@ -118,7 +130,7 @@ const createAttendance = async (req, res) => {
     const newAttendance = result.rows[0]
 
     // Emit WebSocket event
-    io.emit("attendance-created", newAttendance)
+    getIo().emit("attendance-created", newAttendance)
 
     res.status(201).json(newAttendance)
   } catch (error) {
@@ -249,7 +261,7 @@ const checkIn = async (req, res) => {
     await client.query("COMMIT")
 
     // Emit WebSocket event
-    io.emit("attendance_update", {
+    getIo().emit("attendance_update", {
       employee_id,
       action: "check-in",
       attendance: newAttendance,
@@ -524,7 +536,7 @@ const checkOut = async (req, res) => {
     await client.query("COMMIT")
 
     // Emit WebSocket event
-    io.emit("attendance_update", {
+    getIo().emit("attendance_update", {
       employee_id,
       action: "check-out",
       attendance: updatedAttendance,
@@ -605,7 +617,7 @@ const updateAttendance = async (req, res) => {
     const updatedAttendance = result.rows[0]
 
     // Emit WebSocket event
-    io.emit("attendance-updated", {
+    getIo().emit("attendance-updated", {
       employee_id: updatedAttendance.employee_id,
       action: "update",
       attendance: updatedAttendance,
@@ -635,7 +647,7 @@ const deleteAttendance = async (req, res) => {
     await pool.query("DELETE FROM attendance WHERE id = $1", [attendanceId])
 
     // Emit WebSocket event
-    io.emit("attendance-updated", {
+    getIo().emit("attendance-updated", {
       employee_id: employeeId,
       action: "delete",
       attendance_id: attendanceId,

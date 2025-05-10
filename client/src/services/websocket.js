@@ -1,306 +1,210 @@
-// WebSocket service for real-time communication with reconnection and polling fallback
-class WebSocketService {
-  constructor() {
-    this.socket = null
-    this.isConnected = false
-    this.reconnectAttempts = 0
-    this.maxReconnectAttempts = 10 // Increased from 5
-    this.reconnectTimeout = null
-    this.reconnectInterval = 3000 // 3 seconds
-    this.eventListeners = {}
-    this.userId = null
-    this.userRole = null
-    this.baseUrl = import.meta.env.VITE_WS_URL || "ws://localhost:5000"
-    this.pollingEnabled = false
-    this.pollingIntervals = {}
-    this.pollingEndpoints = {
-      attendance_update: "/api/attendance",
-      leave_update: "/api/leaves",
-      notification: "/api/notifications",
-      "task-created": "/api/tasks",
-      "task-updated": "/api/tasks",
-      "task-deleted": "/api/tasks",
-    }
+// WebSocket service for real-time communication
+let socket = null
+let reconnectTimer = null
+let isConnecting = false
+let authSent = false
+let messageQueue = []
+let eventListeners = {}
+
+// Get WebSocket URL from environment or use default
+const WS_URL = import.meta.env.VITE_WEBSOCKET_URL || "ws://localhost:5000"
+
+// Initialize WebSocket connection
+export const initWebSocket = (userId, role) => {
+  if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+    console.log("WebSocket already connected or connecting")
+    return
   }
 
-  // Connect to WebSocket server with improved error handling
-  connect(userId, userRole) {
-    if (this.socket && this.isConnected) {
-      console.log("WebSocket already connected")
-      return
-    }
-
-    this.userId = userId
-    this.userRole = userRole
-
-    try {
-      const url = `${this.baseUrl}?userId=${userId}&userRole=${userRole}`
-
-      // Clear any existing connection
-      if (this.socket) {
-        this.socket.close()
-        this.socket = null
-      }
-
-      this.socket = new WebSocket(url)
-
-      this.socket.onopen = () => {
-        console.log("WebSocket connected")
-        this.isConnected = true
-        this.reconnectAttempts = 0
-
-        // Send authentication message
-        this.send({
-          type: "auth",
-          data: { userId, userRole },
-        })
-
-        // Stop any polling that may have been started
-        this.disablePollingFallback()
-      }
-
-      this.socket.onclose = (event) => {
-        console.log("WebSocket disconnected", event)
-        this.isConnected = false
-
-        if (event.code !== 1000) {
-          // Not a normal closure
-          this.handleReconnect()
-        }
-      }
-
-      this.socket.onerror = (error) => {
-        console.error("WebSocket error:", error)
-        this.isConnected = false
-      }
-
-      this.socket.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data)
-          this.handleMessage(message)
-        } catch (error) {
-          console.error("Error parsing WebSocket message:", error)
-        }
-      }
-    } catch (error) {
-      console.error("Error connecting to WebSocket:", error)
-      this.handleReconnect()
-    }
+  if (isConnecting) {
+    console.log("WebSocket connection already in progress")
+    return
   }
 
-  // Handle reconnection logic with exponential backoff
-  handleReconnect() {
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout)
-    }
+  isConnecting = true
+  authSent = false
 
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.reconnectAttempts++
+  try {
+    console.log(`Connecting to WebSocket at ${WS_URL}`)
+    socket = new WebSocket(WS_URL)
 
-      // Exponential backoff with maximum of 30 seconds
-      const delay = Math.min(30000, this.reconnectInterval * Math.pow(1.5, this.reconnectAttempts - 1))
+    socket.onopen = () => {
+      console.log("WebSocket connection established")
+      isConnecting = false
 
-      console.log(
-        `Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts}) in ${Math.round(delay / 1000)}s...`,
-      )
-
-      this.reconnectTimeout = setTimeout(() => {
-        if (this.userId && this.userRole) {
-          this.connect(this.userId, this.userRole)
-        }
-      }, delay)
-
-      // If we've tried 3 times already, start polling as fallback
-      if (this.reconnectAttempts >= 3) {
-        this.enablePollingFallback()
-      }
-    } else {
-      console.error("Max reconnect attempts reached. Using polling fallback only.")
-      this.enablePollingFallback()
-    }
-  }
-
-  // Enable polling fallback for real-time updates
-  enablePollingFallback() {
-    if (this.pollingEnabled) return
-
-    console.log("Enabling polling fallback for real-time updates")
-    this.pollingEnabled = true
-
-    // Set up polling for different event types
-    for (const [eventType, endpoint] of Object.entries(this.pollingEndpoints)) {
-      // Only set up polling for events that have listeners
-      if (this.eventListeners[eventType] && this.eventListeners[eventType].length > 0) {
-        // Use different intervals for different event types to avoid overwhelming the server
-        const interval = 5000 + Math.random() * 2000 // 5-7 seconds, slightly randomized
-
-        this.pollingIntervals[eventType] = setInterval(() => {
-          this.pollEndpoint(eventType, endpoint)
-        }, interval)
-      }
-    }
-  }
-
-  // Disable polling fallback
-  disablePollingFallback() {
-    if (!this.pollingEnabled) return
-
-    console.log("Disabling polling fallback")
-    this.pollingEnabled = false
-
-    // Clear all polling intervals
-    for (const interval of Object.values(this.pollingIntervals)) {
-      clearInterval(interval)
-    }
-
-    this.pollingIntervals = {}
-  }
-
-  // Poll an API endpoint for updates
-  async pollEndpoint(eventType, endpoint) {
-    if (!this.userId) return
-
-    try {
-      const response = await fetch(`${endpoint}${eventType === "notification" ? `/${this.userId}` : ""}`, {
-        credentials: "include", // For session cookies
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-
-        // Simulate WebSocket message for this event type
-        if (Array.isArray(data)) {
-          data.forEach((item) => {
-            this.handleMessage({
-              type: eventType,
-              data: item,
-            })
-          })
-        } else {
-          this.handleMessage({
-            type: eventType,
-            data,
-          })
-        }
-      }
-    } catch (error) {
-      console.error(`Polling error for ${eventType}:`, error)
-    }
-  }
-
-  // Disconnect WebSocket with clean closure
-  disconnect() {
-    // Disable polling first
-    this.disablePollingFallback()
-
-    if (this.socket) {
-      // Use code 1000 for normal closure
-      this.socket.close(1000, "User disconnected")
-      this.socket = null
-      this.isConnected = false
-
-      if (this.reconnectTimeout) {
-        clearTimeout(this.reconnectTimeout)
-        this.reconnectTimeout = null
+      // Send authentication message
+      if (userId && role) {
+        sendAuth(userId, role)
       }
 
-      console.log("WebSocket disconnected")
+      // Process any queued messages
+      while (messageQueue.length > 0) {
+        const msg = messageQueue.shift()
+        socket.send(JSON.stringify(msg))
+      }
     }
 
-    // Reset user info
-    this.userId = null
-    this.userRole = null
-  }
-
-  // Send message to server with retry logic
-  send(message) {
-    if (!this.socket || !this.isConnected) {
-      console.error("Cannot send message: WebSocket not connected")
-      return false
-    }
-
-    try {
-      this.socket.send(JSON.stringify(message))
-      return true
-    } catch (error) {
-      console.error("Error sending WebSocket message:", error)
-
-      // Try to reconnect on send failure
-      this.handleReconnect()
-      return false
-    }
-  }
-
-  // Handle incoming messages with improved error isolation
-  handleMessage(message) {
-    if (!message || !message.type) {
-      console.error("Invalid message format:", message)
-      return
-    }
-
-    // Dispatch message to registered event listeners
-    const listeners = this.eventListeners[message.type] || []
-    listeners.forEach((callback) => {
+    socket.onmessage = (event) => {
       try {
-        callback(message.data)
+        const data = JSON.parse(event.data)
+        console.log("WebSocket message received:", data.type)
+
+        // Handle authentication confirmation
+        if (data.type === "auth_success") {
+          console.log("WebSocket authentication successful")
+          authSent = true
+        }
+
+        // Dispatch event to listeners
+        if (eventListeners[data.type]) {
+          eventListeners[data.type].forEach((callback) => {
+            try {
+              callback(data.data)
+            } catch (error) {
+              console.error(`Error in event listener for ${data.type}:`, error)
+            }
+          })
+        }
       } catch (error) {
-        console.error(`Error in ${message.type} event listener:`, error)
-        // Don't let one handler's error affect others
-      }
-    })
-  }
-
-  // Register event listener with validation
-  on(eventType, callback) {
-    if (typeof callback !== "function") {
-      console.error("Event listener must be a function")
-      return () => {}
-    }
-
-    if (!this.eventListeners[eventType]) {
-      this.eventListeners[eventType] = []
-    }
-
-    this.eventListeners[eventType].push(callback)
-
-    // If we're already using polling fallback, set up polling for this event type
-    if (this.pollingEnabled && this.pollingEndpoints[eventType] && !this.pollingIntervals[eventType]) {
-      const interval = 5000 + Math.random() * 2000
-      this.pollingIntervals[eventType] = setInterval(() => {
-        this.pollEndpoint(eventType, this.pollingEndpoints[eventType])
-      }, interval)
-    }
-
-    // Return a function to remove this specific listener
-    return () => {
-      this.eventListeners[eventType] = this.eventListeners[eventType].filter((cb) => cb !== callback)
-
-      // If no more listeners for this event type, clear the polling interval
-      if (this.pollingEnabled && this.eventListeners[eventType].length === 0 && this.pollingIntervals[eventType]) {
-        clearInterval(this.pollingIntervals[eventType])
-        delete this.pollingIntervals[eventType]
+        console.error("Error processing WebSocket message:", error)
       }
     }
-  }
 
-  // Check if WebSocket is connected
-  isConnected() {
-    return this.isConnected
-  }
+    socket.onclose = (event) => {
+      console.log(`WebSocket connection closed: ${event.code} ${event.reason}`)
+      socket = null
+      isConnecting = false
+      authSent = false
 
-  // Get connection state information
-  getConnectionInfo() {
-    return {
-      connected: this.isConnected,
-      reconnectAttempts: this.reconnectAttempts,
-      maxReconnectAttempts: this.maxReconnectAttempts,
-      pollingEnabled: this.pollingEnabled,
-      userId: this.userId,
-      userRole: this.userRole,
+      // Attempt to reconnect after delay
+      if (!reconnectTimer) {
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null
+          console.log("Attempting to reconnect WebSocket...")
+          initWebSocket(userId, role)
+        }, 5000)
+      }
+    }
+
+    socket.onerror = (error) => {
+      console.error("WebSocket error:", error)
+      isConnecting = false
+    }
+  } catch (error) {
+    console.error("Error initializing WebSocket:", error)
+    isConnecting = false
+
+    // Attempt to reconnect after delay
+    if (!reconnectTimer) {
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null
+        console.log("Attempting to reconnect WebSocket after error...")
+        initWebSocket(userId, role)
+      }, 5000)
     }
   }
 }
 
-// Create singleton instance
-const websocketService = new WebSocketService()
-export default websocketService
+// Send authentication message
+export const sendAuth = (userId, role) => {
+  if (!userId || !role) {
+    console.error("Cannot authenticate WebSocket: missing userId or role")
+    return
+  }
+
+  const authMessage = {
+    type: "auth",
+    userId,
+    role,
+  }
+
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify(authMessage))
+    authSent = true
+    console.log("WebSocket authentication sent")
+  } else {
+    // Queue the message to be sent when connection is established
+    messageQueue.push(authMessage)
+    console.log("WebSocket not ready, authentication message queued")
+
+    // Try to initialize the connection if it's not already connecting
+    if (!isConnecting && !socket) {
+      initWebSocket(userId, role)
+    }
+  }
+}
+
+// Send a message through WebSocket
+export const sendMessage = (type, data) => {
+  const message = {
+    type,
+    data,
+  }
+
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify(message))
+    return true
+  } else {
+    console.log(`WebSocket not ready, message ${type} queued`)
+    messageQueue.push(message)
+
+    // Try to initialize the connection if it's not already connecting
+    if (!isConnecting && !socket) {
+      initWebSocket()
+    }
+    return false
+  }
+}
+
+// Add event listener
+export const addEventListener = (eventType, callback) => {
+  if (!eventListeners[eventType]) {
+    eventListeners[eventType] = []
+  }
+  eventListeners[eventType].push(callback)
+
+  return () => {
+    removeEventListener(eventType, callback)
+  }
+}
+
+// Remove event listener
+export const removeEventListener = (eventType, callback) => {
+  if (eventListeners[eventType]) {
+    eventListeners[eventType] = eventListeners[eventType].filter((cb) => cb !== callback)
+  }
+}
+
+// Close WebSocket connection
+export const closeWebSocket = () => {
+  if (socket) {
+    socket.close()
+    socket = null
+  }
+
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+
+  isConnecting = false
+  authSent = false
+  messageQueue = []
+  eventListeners = {}
+}
+
+// Check if WebSocket is connected
+export const isConnected = () => {
+  return socket && socket.readyState === WebSocket.OPEN
+}
+
+// Export WebSocket service
+export default {
+  initWebSocket,
+  sendAuth,
+  sendMessage,
+  addEventListener,
+  removeEventListener,
+  closeWebSocket,
+  isConnected,
+}

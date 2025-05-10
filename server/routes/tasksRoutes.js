@@ -13,19 +13,28 @@ const isAdminOrManager = (req, res, next) => {
 }
 
 // Get all tasks (Admin and Manager only)
-router.get("/", isAuthenticated, isAdminOrManager, tasksController.getAlltasks)
+router.get("/", isAuthenticated, isAdminOrManager, tasksController.getAllTasks)
 
 // Get tasks for a specific employee
-router.get("/:employeeId", isAuthenticated, tasksController.getEmployeetasks)
+router.get("/employee/:employeeId", isAuthenticated, tasksController.getEmployeeTasks)
+
+// Get tasks for a specific manager
+router.get("/manager/:managerId", isAuthenticated, tasksController.getManagerTasks)
 
 // Create a new task (Admin and Manager only)
 router.post("/", isAuthenticated, isAdminOrManager, tasksController.createTask)
 
 // Update task status
-router.put("/:id/status", isAuthenticated, tasksController.updatetaskstatus)
+router.put("/:taskId/status", isAuthenticated, tasksController.updateTaskStatus)
+
+// Update task details
+router.put("/:taskId", isAuthenticated, isAdminOrManager, tasksController.updateTask)
 
 // Delete a task (Admin and Manager only)
-router.delete("/:id", isAuthenticated, isAdminOrManager, tasksController.deleteTask)
+router.delete("/:taskId", isAuthenticated, isAdminOrManager, tasksController.deleteTask)
+
+// Get task by ID
+router.get("/:taskId", isAuthenticated, tasksController.getTaskById)
 
 // Start task timer
 router.post("/:taskId/timer/start", isAuthenticated, tasksController.startTaskTimer)

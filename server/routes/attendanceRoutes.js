@@ -17,12 +17,20 @@ router.get(
 // Get today's attendance status for an employee/manager (used to prevent duplicate check-in/absent)
 router.get("/today/:employeeId", auth.isAuthenticated, auth.isSelfOrManagerOrAdmin, attendanceController.getTodayStatus)
 
-// Get total work days for an employee
+// Get attendance by date range
 router.get(
-  "/workdays/:employeeId",
+  "/range",
+  auth.isAuthenticated,
+  auth.isManager,
+  attendanceController.getAttendanceByDateRange
+)
+
+// Get employee attendance statistics
+router.get(
+  "/stats/:employeeId",
   auth.isAuthenticated,
   auth.isSelfOrManagerOrAdmin,
-  attendanceController.getTotalWorkDays,
+  attendanceController.getEmployeeStats
 )
 
 // Mark check-in (only once per day, both employee and manager allowed)
@@ -31,20 +39,28 @@ router.post("/checkin", auth.isAuthenticated, attendanceController.checkIn)
 // Mark check-out (only after check-in, and only once per day, both employee and manager allowed)
 router.put("/checkout", auth.isAuthenticated, attendanceController.checkOut)
 
-// Mark as absent (disables other actions for the day, both employee and manager allowed)
-router.post("/absent", auth.isAuthenticated, attendanceController.markAbsent)
-
-// Add a new route for correcting attendance records
-router.post(
-  "/correct",
+// Update attendance record (manager only)
+router.put(
+  "/:attendanceId",
   auth.isAuthenticated,
-  (req, res, next) => {
-    if (req.session.user.role === "manager" || req.session.user.role === "admin") {
-      return next()
-    }
-    return res.status(403).json({ message: "Only managers and admins can correct attendance records" })
-  },
-  attendanceController.correctAttendance,
+  auth.isManager,
+  attendanceController.updateAttendance
+)
+
+// Delete attendance record (manager only)
+router.delete(
+  "/:attendanceId",
+  auth.isAuthenticated,
+  auth.isManager,
+  attendanceController.deleteAttendance
+)
+
+// Create a new attendance record (manager only)
+router.post(
+  "/",
+  auth.isAuthenticated,
+  auth.isManager,
+  attendanceController.createAttendance
 )
 
 module.exports = router

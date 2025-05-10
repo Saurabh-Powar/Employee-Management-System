@@ -1,91 +1,94 @@
 const express = require("express")
-const session = require("express-session")
 const cors = require("cors")
+const session = require("express-session")
 const http = require("http")
-const createTables = require("./db/migrate")
-const authRoutes = require("./routes/authRoutes")
-const employeesRoutes = require("./routes/employeesRoutes")
-const attendanceRoutes = require("./routes/attendanceRoutes")
-const leavesRoutes = require("./routes/leavesRoutes")
-const performanceRoutes = require("./routes/performanceRoutes")
-const salariesRoutes = require("./routes/salariesRoutes")
-const notificationsRoutes = require("./routes/notificationsRoutes")
-const tasksRoutes = require("./routes/tasksRoutes")
-const shiftsRoutes = require("./routes/shiftsRoutes")
-const initWebSocket = require("./websocket")
+const path = require("path")
+const dotenv = require("dotenv")
+const pgSession = require("connect-pg-simple")(session)
+const pool = require("./db/sql")
+const websocket = require("./websocket")
 
 // Load environment variables
-const PORT = process.env.PORT || 5000
-const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000"
-const SESSION_SECRET = process.env.SESSION_SECRET || "your_session_secret"
-const isProduction = process.env.NODE_ENV === "production"
+dotenv.config()
 
+// Create Express app
 const app = express()
+const PORT = process.env.PORT || 5000
+
+// Create HTTP server
 const server = http.createServer(app)
 
 // Initialize WebSocket server
-const wsServer = initWebSocket(server)
-
-// Make WebSocket server available to routes
-app.set("wsServer", wsServer)
+websocket.init(server)
 
 // Middleware
 app.use(express.json())
+app.use(express.urlencoded({ extended: true }))
+
+// Configure CORS
 app.use(
   cors({
-    origin: CLIENT_URL,
+    origin: process.env.CLIENT_URL || "http://localhost:5173",
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
   }),
 )
 
 // Session configuration
 app.use(
   session({
-    secret: SESSION_SECRET,
+    store: new pgSession({
+      pool,
+      tableName: "user_sessions",
+    }),
+    secret: process.env.SESSION_SECRET || "your-secret-key",
     resave: false,
     saveUninitialized: false,
     cookie: {
-      // In development, we allow non-secure cookies for testing
-      // In production, always use secure cookies
-      secure: isProduction,
+      secure: process.env.NODE_ENV === "production",
       httpOnly: true,
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      sameSite: isProduction ? "none" : "lax", // Needed for cross-site cookies in production
+      maxAge: 24 * 60 * 60 * 1000, // 1 day
     },
   }),
 )
 
-// Create database tables if they don't exist
-createTables()
-  .then(() => {
-    console.log("Database tables created successfully")
-  })
-  .catch((err) => {
-    console.error("Error creating database tables:", err)
-  })
+// API routes
+app.use("/api/auth", require("./routes/authRoutes"))
+app.use("/api/employees", require("./routes/employeesRoutes"))
+app.use("/api/attendance", require("./routes/attendanceRoutes"))
+app.use("/api/leaves", require("./routes/leavesRoutes"))
+app.use("/api/tasks", require("./routes/tasksRoutes"))
+app.use("/api/shifts", require("./routes/shiftsRoutes"))
+app.use("/api/salaries", require("./routes/salariesRoutes"))
+app.use("/api/notifications", require("./routes/notificationsRoutes"))
+app.use("/api/performance", require("./routes/performanceRoutes"))
 
-// Routes
-app.use("/api/auth", authRoutes)
-app.use("/api/employees", employeesRoutes)
-app.use("/api/attendance", attendanceRoutes)
-app.use("/api/leaves", leavesRoutes)
-app.use("/api/performance", performanceRoutes)
-app.use("/api/salaries", salariesRoutes)
-app.use("/api/notifications", notificationsRoutes)
-app.use("/api/tasks", tasksRoutes)
-app.use("/api/shifts", shiftsRoutes)
+// Serve static files in production
+if (process.env.NODE_ENV === "production") {
+  app.use(express.static(path.join(__dirname, "../client/dist")))
 
-// Health check endpoint
-app.get("/health", (req, res) => {
-  res.status(200).json({ status: "ok" })
+  app.get("*", (req, res) => {
+    res.sendFile(path.join(__dirname, "../client/dist/index.html"))
+  })
+}
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack)
+  res.status(500).json({ error: "Something went wrong!" })
 })
 
 // Start server
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`)
-  console.log(`Environment: ${isProduction ? "Production" : "Development"}`)
-  console.log(`CORS enabled for origin: ${CLIENT_URL}`)
-  console.log(`WebSocket server initialized`)
 })
+
+// Handle graceful shutdown
+process.on("SIGINT", () => {
+  console.log("Shutting down server...")
+  server.close(() => {
+    console.log("Server shut down")
+    process.exit(0)
+  })
+})
+
+module.exports = app

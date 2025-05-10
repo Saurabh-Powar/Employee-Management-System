@@ -1,133 +1,165 @@
 const WebSocket = require("ws")
-const http = require("http")
+const cookie = require("cookie")
+const jwt = require("jsonwebtoken")
+const { createAdapter } = require("@socket.io/postgres-adapter")
+const { Server } = require("socket.io")
+const pool = require("./db/sql")
+
+// WebSocket server instance
+let io = null
+let wss = null
 
 // Initialize WebSocket server
-function initWebSocket(server) {
-  const wss = new WebSocket.Server({ server })
+const init = (server) => {
+  try {
+    console.log("WebSocket server initialized")
 
-  // Store connected clients with their info
-  const clients = new Map()
+    // Create Socket.IO server
+    io = new Server(server, {
+      cors: {
+        origin: process.env.CLIENT_URL || "http://localhost:5173",
+        methods: ["GET", "POST"],
+        credentials: true,
+      },
+    })
 
-  console.log("WebSocket server initialized")
+    // Set up PostgreSQL adapter for Socket.IO
+    const pgClient = pool
+    io.adapter(createAdapter(pgClient))
 
-  wss.on("connection", (ws, req) => {
-    const ip = req.socket.remoteAddress
-    console.log(`WebSocket client connected from ${ip}`)
-
-    // Set a ping interval to keep connection alive
-    const pingInterval = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.ping()
-      }
-    }, 30000)
-
-    // Handle client authentication
-    ws.on("message", (message) => {
+    // Authentication middleware
+    io.use(async (socket, next) => {
       try {
-        const data = JSON.parse(message)
-        console.log("Received WebSocket message:", data.type)
+        const cookies = cookie.parse(socket.handshake.headers.cookie || "")
+        const token = cookies.token
 
-        // Handle authentication message
-        if (data.type === "auth") {
-          const { userId, role } = data
-
-          if (userId) {
-            // Store client info for targeted messages
-            clients.set(ws, { userId, role })
-            console.log(`Client authenticated: User ID ${userId}, Role: ${role}`)
-
-            // Send confirmation
-            ws.send(
-              JSON.stringify({
-                type: "auth_success",
-                data: { userId, role },
-              }),
-            )
-          }
+        if (!token) {
+          return next(new Error("Authentication error: No token provided"))
         }
+
+        // Verify JWT token
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key")
+        socket.user = decoded
+
+        // Store user info in socket
+        socket.data.userId = decoded.id
+        socket.data.role = decoded.role
+
+        next()
       } catch (error) {
-        console.error("Error processing WebSocket message:", error)
+        console.error("WebSocket authentication error:", error)
+        next(new Error("Authentication error"))
       }
     })
 
-    // Handle pong responses
-    ws.on("pong", () => {
-      // Client is still alive
-    })
+    // Connection handler
+    io.on("connection", (socket) => {
+      console.log(`User connected: ${socket.data.userId}, Role: ${socket.data.role}`)
 
-    // Handle disconnection
-    ws.on("close", (code, reason) => {
-      clearInterval(pingInterval)
-      clients.delete(ws)
-      console.log(`WebSocket client disconnected: ${code} ${reason}`)
-    })
+      // Join room based on user role and ID
+      socket.join(`user:${socket.data.userId}`)
 
-    // Handle errors
-    ws.on("error", (error) => {
-      console.error("WebSocket error:", error)
-      clearInterval(pingInterval)
-      clients.delete(ws)
-    })
-  })
-
-  // Function to broadcast to all clients
-  function broadcast(data) {
-    const message = JSON.stringify(data)
-    let count = 0
-
-    wss.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(message)
-        count++
+      if (socket.data.role === "manager" || socket.data.role === "admin") {
+        socket.join("managers")
       }
+
+      // Handle attendance updates
+      socket.on("attendance_update", (data) => {
+        // Broadcast to relevant users
+        io.to(`user:${data.employee_id}`).emit("attendance_update", data)
+        io.to("managers").emit("attendance_update", data)
+      })
+
+      // Handle leave requests
+      socket.on("leave_request", (data) => {
+        // Broadcast to relevant users
+        io.to(`user:${data.employee_id}`).emit("leave_request", data)
+        io.to("managers").emit("leave_request", data)
+      })
+
+      // Handle task updates
+      socket.on("task_update", (data) => {
+        // Broadcast to relevant users
+        if (data.assignee_id) {
+          io.to(`user:${data.assignee_id}`).emit("task_update", data)
+        }
+        io.to("managers").emit("task_update", data)
+      })
+
+      // Handle notifications
+      socket.on("notification", (data) => {
+        // Send to specific user
+        if (data.recipient_id) {
+          io.to(`user:${data.recipient_id}`).emit("notification", data)
+        }
+      })
+
+      // Handle disconnection
+      socket.on("disconnect", () => {
+        console.log(`User disconnected: ${socket.data.userId}`)
+      })
     })
 
-    console.log(`Broadcast message sent to ${count} clients`)
-  }
-
-  // Function to send to specific user
-  function sendToUser(userId, data) {
-    const message = JSON.stringify(data)
-    let sent = false
-
-    for (const [client, info] of clients.entries()) {
-      if (info.userId === userId && client.readyState === WebSocket.OPEN) {
-        client.send(message)
-        sent = true
-        console.log(`Message sent to user ${userId}`)
-      }
-    }
-
-    if (!sent) {
-      console.log(`User ${userId} not connected, message not delivered`)
-    }
-
-    return sent
-  }
-
-  // Function to send to users with specific role
-  function sendToRole(role, data) {
-    const message = JSON.stringify(data)
-    let count = 0
-
-    for (const [client, info] of clients.entries()) {
-      if (info.role === role && client.readyState === WebSocket.OPEN) {
-        client.send(message)
-        count++
-      }
-    }
-
-    console.log(`Message sent to ${count} users with role ${role}`)
-    return count
-  }
-
-  // Return the WebSocket server interface
-  return {
-    broadcast,
-    sendToUser,
-    sendToRole,
-    getConnectedClients: () => clients.size,
+    return io
+  } catch (error) {
+    console.error("Error initializing WebSocket server:", error)
+    throw error
   }
 }
 
-module.exports = initWebSocket
+// Create a WebSocket server (legacy)
+const initWss = (server) => {
+  try {
+    wss = new WebSocket.Server({ server })
+
+    wss.on("connection", (ws, req) => {
+      console.log("WebSocket client connected")
+
+      ws.on("message", (message) => {
+        try {
+          const data = JSON.parse(message.toString())
+          console.log("Received message:", data)
+
+          // Broadcast to all clients
+          wss.clients.forEach((client) => {
+            if (client !== ws && client.readyState === WebSocket.OPEN) {
+              client.send(JSON.stringify(data))
+            }
+          })
+        } catch (error) {
+          console.error("Error parsing WebSocket message:", error)
+        }
+      })
+
+      ws.on("close", () => {
+        console.log("WebSocket client disconnected")
+      })
+    })
+
+    return wss
+  } catch (error) {
+    console.error("Error initializing WebSocket server:", error)
+    throw error
+  }
+}
+
+// Export WebSocket server
+module.exports = {
+  init,
+  initWss,
+  get io() {
+    // Return a dummy emitter if io is not initialized
+    if (!io) {
+      return {
+        emit: () => console.log("WebSocket not initialized, event not emitted")
+      };
+    }
+    return io
+  },
+  get wss() {
+    if (!wss) {
+      throw new Error("WebSocket server not initialized. Call initWss() first.")
+    }
+    return wss
+  },
+}

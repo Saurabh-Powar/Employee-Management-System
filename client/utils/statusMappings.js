@@ -1,8 +1,6 @@
-/**
- * Utility functions for mapping UI-friendly status values to database values and vice versa
- */
+// Status mapping utilities for consistent UI display
 
-// Task status mappings
+// Task status mapping between UI and database
 export const taskStatusMapping = {
     // UI to DB mapping
     pending: "pending",
@@ -15,82 +13,41 @@ export const taskStatusMapping = {
     in_review: "pending_completion",
   }
   
-  // Attendance status mappings
+  // Attendance status mapping
   export const attendanceStatusMapping = {
-    // UI to DB mapping
-    present: "present",
-    late: "late",
-    absent: "absent",
-    half_day: "half_day",
-  
-    // DB to UI mapping (reverse)
+    "check-in": "Checked In",
+    "check-out": "Checked Out",
+    absent: "Absent",
+    late: "Late",
   }
   
-  // Leave request status mappings
+  // Leave status mapping
   export const leaveStatusMapping = {
-    // UI to DB mapping
-    pending: "pending",
-    approved: "approved",
-    rejected: "rejected",
-    cancelled: "cancelled",
-  
-    // DB to UI mapping (reverse)
+    pending: "Pending",
+    approved: "Approved",
+    rejected: "Rejected",
   }
   
-  // Notification type mappings
-  export const notificationTypeMapping = {
-    // UI to DB mapping
-    success: "task_update",
-    warning: "attendance_alert",
-    info: "general",
-    error: "system_alert",
-  
-    // DB to UI mapping (reverse)
-    task_update: "success",
-    attendance_alert: "warning",
-    general: "info",
-    system_alert: "error",
+  // Map a value using the provided mapping
+  export const mapToUiValue = (value, mapping) => {
+    return mapping[value] || value
   }
   
-  /**
-   * Maps a UI status to its corresponding database status
-   * @param {string} uiStatus - The status value displayed in the UI
-   * @param {Object} mappingObject - The mapping object to use
-   * @returns {string} - The database status value
-   */
-  export const mapToDbValue = (uiValue, mappingObject) => {
-    return mappingObject[uiValue] || uiValue
-  }
+  // Map a UI value to database value
+  export const mapToDbValue = (uiValue, mapping) => {
+    // First check if there's a direct mapping
+    if (mapping[uiValue]) {
+      return mapping[uiValue]
+    }
   
-  /**
-   * Maps a database status to its corresponding UI status
-   * @param {string} dbStatus - The status value stored in the database
-   * @param {Object} mappingObject - The mapping object to use
-   * @returns {string} - The UI-friendly status value
-   */
-  export const mapToUiValue = (dbValue, mappingObject) => {
-    // Find UI value that maps to this DB value
-    for (const [uiValue, mappedDbValue] of Object.entries(mappingObject)) {
-      if (mappedDbValue === dbValue) {
-        return uiValue
+    // If not, look for a reverse mapping
+    for (const [dbValue, mappedUiValue] of Object.entries(mapping)) {
+      if (mappedUiValue === uiValue) {
+        return dbValue
       }
     }
-    return dbValue // Default to the same if no mapping exists
-  }
   
-  /**
-   * Creates an object with both DB and UI values
-   * @param {Object} object - The object containing a status field
-   * @param {string} field - The field name to map (e.g. 'status', 'type')
-   * @param {Object} mappingObject - The mapping object to use
-   * @returns {Object} - Object with additional ui_fieldname property
-   */
-  export const addUiMapping = (object, field, mappingObject) => {
-    if (!object || object[field] === undefined) return object
-  
-    return {
-      ...object,
-      [`ui_${field}`]: mapToUiValue(object[field], mappingObject),
-    }
+    // If no mapping found, return the original value
+    return uiValue
   }
   

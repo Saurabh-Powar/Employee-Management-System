@@ -1,9 +1,9 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import axios from "axios"
 import EmployeeForm from "./EmployeeForm"
 import { useAuth } from "../context/AuthContext"
+import api from "../services/api"
 import "./EmployeeLists.css"
 
 function EmployeeList() {
@@ -18,7 +18,7 @@ function EmployeeList() {
   const fetchEmployees = async () => {
     try {
       setLoading(true)
-      const res = await axios.get("http://localhost:5000/api/employees", { withCredentials: true })
+      const res = await api.get("/employees")
       setEmployees(res.data)
       setError("")
     } catch (err) {
@@ -36,7 +36,7 @@ function EmployeeList() {
   const handleDelete = async (id) => {
     if (!window.confirm("Are you sure you want to delete this employee?")) return
     try {
-      await axios.delete(`http://localhost:5000/api/employees/${id}`, { withCredentials: true })
+      await api.delete(`/employees/${id}`)
       setEmployees((prev) => prev.filter((emp) => emp.id !== id))
       setSuccessMessage("Employee deleted successfully.")
     } catch (err) {
@@ -59,12 +59,10 @@ function EmployeeList() {
   const handleFormSubmit = async (employeeData) => {
     try {
       if (editEmployee) {
-        await axios.put(`http://localhost:5000/api/employees/${editEmployee.id}`, employeeData, {
-          withCredentials: true,
-        })
+        await api.put(`/employees/${editEmployee.id}`, employeeData)
         setSuccessMessage("Employee details updated successfully.")
       } else {
-        await axios.post("http://localhost:5000/api/employees", employeeData, { withCredentials: true })
+        await api.post("/employees", employeeData)
         setSuccessMessage("Employee added successfully.")
       }
       handleFormClose()
