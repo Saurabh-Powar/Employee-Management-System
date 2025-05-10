@@ -12,13 +12,28 @@
 }
 
 .attendance-popup {
-  background: #fff;
-  padding: 2rem;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.attendance-popup-content {
+  position: relative;
+  background-color: white;
   border-radius: 8px;
+  padding: 25px;
   width: 90%;
-  max-width: 400px;
-  box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
-  animation: popup-fade-in 0.3s ease-out;
+  max-width: 500px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
 }
 
 @keyframes popup-fade-in {
@@ -163,5 +178,204 @@
   .attendance-popup {
     width: 95%;
     padding: 1.5rem;
+  }
+}
+
+/* Add these styles at the end of your CSS file */
+
+/* Confirmation dialog styling */
+.attendance-confirmation-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100; /* Higher than the attendance popup */
+}
+
+.attendance-confirmation {
+  background-color: white;
+  border-radius: 8px;
+  padding: 20px;
+  width: 90%;
+  max-width: 400px;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+}
+
+.attendance-confirmation h3 {
+  margin-top: 0;
+  color: #333;
+  font-size: 1.2rem;
+}
+
+.confirmation-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.confirm-btn {
+  background-color: #dc3545;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.cancel-btn {
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.confirm-btn:hover {
+  background-color: #c82333;
+}
+
+.cancel-btn:hover {
+  background-color: #5a6268;
+}
+
+.close-btn {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  background: transparent;
+  border: none;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #666;
+}
+
+.close-btn:hover,
+.close-btn:focus {
+  color: #000;
+  background-color: #f1f1f1;
+  outline: none;
+}
+
+.attendance-actions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-weight: 500;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.2s, transform 0.1s;
+}
+
+.attendance-actions button:focus {
+  outline: 2px solid #0070f3;
+  outline-offset: 2px;
+}
+
+.attendance-actions button .icon {
+  margin-right: 5px;
+}
+
+.check-in-btn {
+  background-color: #28a745;
+  color: white;
+}
+
+.check-in-btn:hover {
+  background-color: #218838;
+}
+
+.check-out-btn {
+  background-color: #dc3545;
+  color: white;
+}
+
+.check-out-btn:hover {
+  background-color: #c82333;
+}
+
+/* Focus styles for all interactive elements */
+button:focus,
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid #0070f3;
+  outline-offset: 2px;
+}
+
+/* High contrast status badges */
+.status-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+  font-size: 0.85rem;
+  text-transform: capitalize;
+  color: white;
+}
+
+.status-present .status-badge {
+  background-color: #28a745;
+}
+
+.status-late .status-badge {
+  background-color: #dc3545;
+}
+
+.status-absent .status-badge {
+  background-color: #6c757d;
+}
+
+.status-half_day .status-badge {
+  background-color: #fd7e14;
+}
+
+/* Late warning with improved contrast */
+.late-warning {
+  margin-top: 15px;
+  padding: 10px;
+  background-color: #f8d7da;
+  border: 1px solid #f5c6cb;
+  color: #721c24;
+  border-radius: 4px;
+}
+
+.late-warning p {
+  margin: 5px 0;
+}
+
+.late-note {
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+/* Responsive improvements */
+@media (max-width: 576px) {
+  .attendance-popup-content {
+    width: 95%;
+    padding: 20px 15px;
+  }
+
+  .attendance-actions button {
+    padding: 8px 12px;
+    font-size: 0.9rem;
   }
 }

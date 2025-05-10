@@ -5,9 +5,12 @@ import { useAuth } from "../context/AuthContext"
 import api from "../services/api"
 import AttendancePopup from "./AttendancePopup"
 import AttendanceCorrection from "./AttendanceCorrection"
-import { Clock, AlertCircle, RefreshCw } from "lucide-react"
 import "./AttendanceTableS.css"
 import websocketService from "../services/websocket"
+
+// Add these imports at the top of the file
+import { mapToUiValue, attendanceStatusMapping } from "../utils/statusMappings"
+import { RefreshCw, Clock, Edit, AlertCircle } from "lucide-react"
 
 function AttendanceTable({ allowMarking = false }) {
   const { user, refreshUser } = useAuth()
@@ -211,6 +214,7 @@ function AttendanceTable({ allowMarking = false }) {
     })
   }
 
+  // Replace the current isLate function with this improved one
   // Function to determine if an employee was late based on their shift
   const isLate = (record) => {
     if (!record || !record.check_in || record.status === "absent") return false
@@ -219,13 +223,15 @@ function AttendanceTable({ allowMarking = false }) {
     const shift = employeeShifts[record.employee_id]
     if (!shift) return false
 
-    // Get the day of the week for this attendance record
+    // Check if this day is a working day for this employee
     const attendanceDate = new Date(record.date)
-    // Fix: Use "short" instead of "lowercase" for weekday format
     const dayOfWeek = attendanceDate.toLocaleDateString("en-US", { weekday: "short" }).toLowerCase()
 
-    // Check if this day is a working day for this employee
-    if (!shift.days.some((day) => dayOfWeek.substring(0, 3) === day.substring(0, 3))) return false
+    if (!shift.days || !Array.isArray(shift.days)) return false
+
+    const isWorkingDay = shift.days.some((day) => dayOfWeek.substring(0, 3) === day.substring(0, 3).toLowerCase())
+
+    if (!isWorkingDay) return false
 
     // Parse the scheduled start time
     const [scheduledHours, scheduledMinutes] = shift.start_time.split(":").map(Number)
@@ -237,8 +243,8 @@ function AttendanceTable({ allowMarking = false }) {
     // Parse the actual check-in time
     const actualCheckIn = new Date(record.check_in)
 
-    // Employee is late if they checked in after their scheduled start time
-    return actualCheckIn > scheduledStart
+    // Employee is late if they checked in more than 15 minutes after their scheduled start time
+    return actualCheckIn > new Date(scheduledStart.getTime() + 15 * 60000)
   }
 
   // Enhanced render function to show late status
@@ -282,19 +288,45 @@ function AttendanceTable({ allowMarking = false }) {
                 )}
                 {showId && <td>{r.department || "N/A"}</td>}
                 <td>{formatDate(r.date)}</td>
-                <td className={employeeLate ? "late-check-in" : ""}>
+                {/* Also update the check-in cell to include better accessibility for the late icon: */}
+                {/* Find this line: */}
+                {/* <td className={employeeLate ? "late-check-in" : ""}>
                   {formatTime(r.check_in)}
                   {employeeLate && <AlertCircle size={14} className="late-icon" title="Late check-in" />}
+                </td> */}
+
+                {/* Replace with: */}
+                <td className={employeeLate ? "late-check-in" : ""}>
+                  {formatTime(r.check_in)}
+                  {employeeLate && (
+                    <span className="late-indicator">
+                      <AlertCircle size={14} className="late-icon" aria-label="Late check-in" title="Late check-in" />
+                    </span>
+                  )}
                 </td>
                 <td>{formatTime(r.check_out)}</td>
                 <td>{r.hours_worked ?? "--"}</td>
-                <td className={`status-${r.status}`}>
+                {/* In the render function, modify the status badge to use accessibility features: */}
+                {/* Find this line in the render function: */}
+                {/* <td className={`status-${r.status}`}>
                   <span className="status-badge">{r.status}</span>
+                </td> */}
+
+                {/* Replace it with: */}
+                <td className={`status-${r.status}`}>
+                  <span
+                    className="status-badge"
+                    aria-label={`Attendance status: ${r.status}`}
+                    title={`Attendance status: ${r.status}`}
+                  >
+                    {mapToUiValue(r.status, attendanceStatusMapping) || r.status}
+                  </span>
                 </td>
                 {(user.role === "admin" || user.role === "manager") && (
                   <td>
                     {!isOwnRecord ? (
-                      <button
+                      /* Update the edit button to use the Lucide icon and better accessibility: */
+                      /* <button
                         className="edit-attendance-btn"
                         onClick={() => handleCorrectionClick(r)}
                         aria-label="Edit attendance"
@@ -302,6 +334,15 @@ function AttendanceTable({ allowMarking = false }) {
                       >
                         <i className="edit-icon"></i>
                         Edit
+                      </button> */
+                      <button
+                        className="edit-attendance-btn"
+                        onClick={() => handleCorrectionClick(r)}
+                        aria-label={`Edit attendance for ${r.first_name} ${r.last_name}`}
+                        title={`Edit attendance record for ${r.first_name} ${r.last_name}`}
+                      >
+                        <Edit size={16} />
+                        <span className="btn-text">Edit</span>
                       </button>
                     ) : (
                       <span className="no-edit-note" title="Managers cannot edit their own attendance">
@@ -356,9 +397,19 @@ function AttendanceTable({ allowMarking = false }) {
           </div>
         )}
 
-        <button className="refresh-btn" onClick={triggerRefresh} title="Refresh attendance data">
+        {/* Update the refresh button to use the Lucide icon: */}
+        {/* <button className="refresh-btn" onClick={triggerRefresh} title="Refresh attendance data">
           <RefreshCw size={16} />
           Refresh
+        </button> */}
+        <button
+          className="refresh-btn"
+          onClick={triggerRefresh}
+          title="Refresh attendance data"
+          aria-label="Refresh attendance data"
+        >
+          <RefreshCw size={16} />
+          <span>Refresh</span>
         </button>
       </div>
 
