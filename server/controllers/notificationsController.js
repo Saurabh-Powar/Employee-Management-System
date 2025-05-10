@@ -1,178 +1,172 @@
-const db = require("../db/sql")
+const pool = require('../db/sql');
+const { io } = require('../websocket');
 
-const notificationsController = {
-  // Get all notifications for the currently logged-in user
-  getUserNotifications: async (req, res) => {
-    const sessionUser = req.session.user
+// Notification type mapping between UI and database
+const TYPE_MAPPING = {
+  // UI to DB mapping
+  'success': 'task_update',      // Map UI type to allowed DB type
+  'warning': 'attendance_alert',
+  'info': 'general',
+  'error': 'system_alert',
+  
+  // DB to UI mapping (reverse)
+  'task_update': 'success',
+  'attendance_alert': 'warning',
+  'general': 'info',
+  'system_alert': 'error'
+};
 
-    if (!sessionUser) {
-      return res.status(401).json({ message: "User not logged in" })
+// Map UI type to DB type
+const mapToDbType = (uiType) => {
+  return TYPE_MAPPING[uiType] || uiType;
+};
+
+// Map DB type to UI type
+const mapToUiType = (dbType) => {
+  // Find the UI type that maps to this DB type
+  for (const [uiType, mappedDbType] of Object.entries(TYPE_MAPPING)) {
+    if (mappedDbType === dbType) {
+      return uiType;
     }
+  }
+  return dbType; // Default to the same if no mapping exists
+};
 
-    try {
-      // Get notifications with sender details
-      const result = await db.query(
-        `
-        SELECT n.*, 
-               CASE 
-                 WHEN n.sender_id IS NOT NULL THEN 
-                   (SELECT CONCAT(e.first_name, ' ', e.last_name) 
-                    FROM employees e 
-                    JOIN users u ON e.user_id = u.id 
-                    WHERE u.id = n.sender_id)
-                 ELSE 'System'
-               END as sender_name,
-               CASE 
-                 WHEN n.sender_id IS NOT NULL THEN 
-                   (SELECT u.role 
-                    FROM users u 
-                    WHERE u.id = n.sender_id)
-                 ELSE 'system'
-               END as sender_role
-        FROM notifications n
-        WHERE n.user_id = $1 
-        ORDER BY n.created_at DESC
-      `,
-        [sessionUser.id],
-      )
+// Get all notifications for an employee
+const getEmployeeNotifications = async (req, res) => {
+  const { employeeId } = req.params;
+  
+  try {
+    const result = await pool.query(
+      'SELECT n.*, e.name as sender_name FROM notifications n LEFT JOIN employees e ON n.sender_id = e.id WHERE n.employee_id = $1 ORDER BY n.created_at DESC',
+      [employeeId]
+    );
+    
+    // Map DB types to UI types
+    const notificationsWithUiType = result.rows.map(notification => ({
+      ...notification,
+      ui_type: mapToUiType(notification.type),
+      type: notification.type // Keep the original DB type
+    }));
+    
+    res.json(notificationsWithUiType);
+  } catch (error) {
+    console.error(`Error fetching notifications for employee ${employeeId}:`, error);
+    res.status(500).json({ error: 'Failed to fetch notifications' });
+  }
+};
 
-      return res.status(200).json(result.rows)
-    } catch (error) {
-      console.error("Error fetching user notifications:", error)
-      return res.status(500).json({
-        message: "Failed to fetch user notifications",
-        details: error.message,
-      })
+// Create a new notification
+const createNotification = async (req, res) => {
+  const { employee_id, sender_id, title, message, type } = req.body;
+  
+  try {
+    // Map UI type to allowed DB type
+    const dbType = mapToDbType(type);
+    
+    const result = await pool.query(
+      'INSERT INTO notifications (employee_id, sender_id, title, message, type, is_read) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+      [employee_id, sender_id, title, message, dbType, false]
+    );
+    
+    const newNotification = {
+      ...result.rows[0],
+      ui_type: type // Use the original UI type
+    };
+    
+    // Emit WebSocket event
+    io.emit('notification', { 
+      employee_id, 
+      type: dbType, 
+      message,
+      notification: newNotification
+    });
+    
+    res.status(201).json(newNotification);
+  } catch (error) {
+    console.error('Error creating notification:', error);
+    res.status(500).json({ error: 'Failed to create notification' });
+  }
+};
+
+// Mark notification as read
+const markAsRead = async (req, res) => {
+  const { notificationId } = req.params;
+  
+  try {
+    const result = await pool.query(
+      'UPDATE notifications SET is_read = true WHERE id = $1 RETURNING *',
+      [notificationId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Notification not found' });
     }
-  },
+    
+    const updatedNotification = {
+      ...result.rows[0],
+      ui_type: mapToUiType(result.rows[0].type)
+    };
+    
+    res.json(updatedNotification);
+  } catch (error) {
+    console.error(`Error marking notification ${notificationId} as read:`, error);
+    res.status(500).json({ error: 'Failed to mark notification as read' });
+  }
+};
 
-  // Create a new notification (for system use or managers)
-  createNotification: async (req, res) => {
-    const sessionUser = req.session.user
+// Mark all notifications as read for an employee
+const markAllAsRead = async (req, res) => {
+  const { employeeId } = req.params;
+  
+  try {
+    await pool.query(
+      'UPDATE notifications SET is_read = true WHERE employee_id = $1',
+      [employeeId]
+    );
+    
+    res.json({ message: 'All notifications marked as read' });
+  } catch (error) {
+    console.error(`Error marking all notifications as read for employee ${employeeId}:`, error);
+    res.status(500).json({ error: 'Failed to mark all notifications as read' });
+  }
+};
 
-    if (!sessionUser || sessionUser.role !== "manager") {
-      return res.status(403).json({
-        message: "Unauthorized access",
-        details: "Only managers can create notifications.",
-      })
-    }
+// Delete a notification
+const deleteNotification = async (req, res) => {
+  const { notificationId } = req.params;
+  
+  try {
+    await pool.query('DELETE FROM notifications WHERE id = $1', [notificationId]);
+    res.json({ message: 'Notification deleted successfully' });
+  } catch (error) {
+    console.error(`Error deleting notification ${notificationId}:`, error);
+    res.status(500).json({ error: 'Failed to delete notification' });
+  }
+};
 
-    const { user_id, title, message, type } = req.body
+// Get unread notification count for an employee
+const getUnreadCount = async (req, res) => {
+  const { employeeId } = req.params;
+  
+  try {
+    const result = await pool.query(
+      'SELECT COUNT(*) FROM notifications WHERE employee_id = $1 AND is_read = false',
+      [employeeId]
+    );
+    
+    res.json({ count: parseInt(result.rows[0].count) });
+  } catch (error) {
+    console.error(`Error fetching unread notification count for employee ${employeeId}:`, error);
+    res.status(500).json({ error: 'Failed to fetch unread notification count' });
+  }
+};
 
-    if (!user_id || !title || !message || !type) {
-      return res.status(400).json({ message: "Missing required fields" })
-    }
-
-    // Validate user_id (ensure the user exists in the system)
-    try {
-      const userCheck = await db.query("SELECT id FROM users WHERE id = $1", [user_id])
-      if (userCheck.rowCount === 0) {
-        return res.status(404).json({
-          message: "User not found",
-          details: "The specified user_id does not exist.",
-        })
-      }
-
-      const result = await db.query(
-        "INSERT INTO notifications (user_id, sender_id, title, message, type) VALUES ($1, $2, $3, $4, $5) RETURNING *",
-        [user_id, sessionUser.id, title, message, type],
-      )
-      return res.status(201).json(result.rows[0])
-    } catch (error) {
-      console.error("Error creating notification:", error)
-      return res.status(500).json({
-        message: "Failed to create notification",
-        details: error.message,
-      })
-    }
-  },
-
-  // Mark a notification as read (only if the user owns it)
-  markNotificationAsRead: async (req, res) => {
-    const { id } = req.params
-    const sessionUser = req.session.user
-
-    if (!sessionUser) {
-      return res.status(401).json({ message: "User not logged in" })
-    }
-
-    try {
-      const notificationCheck = await db.query("SELECT * FROM notifications WHERE id = $1", [id])
-      const notification = notificationCheck.rows[0]
-
-      if (!notification || notification.user_id !== sessionUser.id) {
-        return res.status(403).json({
-          message: "Unauthorized to modify this notification",
-          details: "You can only modify your own notifications.",
-        })
-      }
-
-      const result = await db.query("UPDATE notifications SET is_read = TRUE WHERE id = $1 RETURNING *", [id])
-      return res.status(200).json(result.rows[0])
-    } catch (error) {
-      console.error("Error marking notification as read:", error)
-      return res.status(500).json({
-        message: "Failed to mark notification as read",
-        details: error.message,
-      })
-    }
-  },
-
-  // Mark all notifications as read
-  markAllNotificationsAsRead: async (req, res) => {
-    const sessionUser = req.session.user
-
-    if (!sessionUser) {
-      return res.status(401).json({ message: "User not logged in" })
-    }
-
-    try {
-      const result = await db.query("UPDATE notifications SET is_read = TRUE WHERE user_id = $1 RETURNING *", [
-        sessionUser.id,
-      ])
-      return res.status(200).json({
-        message: "All notifications marked as read",
-        count: result.rowCount,
-      })
-    } catch (error) {
-      console.error("Error marking all notifications as read:", error)
-      return res.status(500).json({
-        message: "Failed to mark all notifications as read",
-        details: error.message,
-      })
-    }
-  },
-
-  // Mark a notification as unread (optional, based on your requirements)
-  markNotificationAsUnread: async (req, res) => {
-    const { id } = req.params
-    const sessionUser = req.session.user
-
-    if (!sessionUser) {
-      return res.status(401).json({ message: "User not logged in" })
-    }
-
-    try {
-      const notificationCheck = await db.query("SELECT * FROM notifications WHERE id = $1", [id])
-      const notification = notificationCheck.rows[0]
-
-      if (!notification || notification.user_id !== sessionUser.id) {
-        return res.status(403).json({
-          message: "Unauthorized to modify this notification",
-          details: "You can only modify your own notifications.",
-        })
-      }
-
-      const result = await db.query("UPDATE notifications SET is_read = FALSE WHERE id = $1 RETURNING *", [id])
-      return res.status(200).json(result.rows[0])
-    } catch (error) {
-      console.error("Error marking notification as unread:", error)
-      return res.status(500).json({
-        message: "Failed to mark notification as unread",
-        details: error.message,
-      })
-    }
-  },
-}
-
-module.exports = notificationsController
+module.exports = {
+  getEmployeeNotifications,
+  createNotification,
+  markAsRead,
+  markAllAsRead,
+  deleteNotification,
+  getUnreadCount
+};

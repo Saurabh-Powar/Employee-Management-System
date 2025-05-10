@@ -25,6 +25,24 @@ function ManagerPage() {
     }
   }, [user])
 
+  useEffect(() => {
+    // Initialize WebSocket connection when user is loaded
+    if (user && user.id) {
+      import("../services/websocket").then((module) => {
+        const websocketService = module.default
+        websocketService.connect(user.id, user.role)
+      })
+    }
+
+    // Clean up WebSocket connection on unmount
+    return () => {
+      import("../services/websocket").then((module) => {
+        const websocketService = module.default
+        websocketService.disconnect()
+      })
+    }
+  }, [user])
+
   if (!user) {
     return <div className="loading">Loading...</div>
   }
@@ -49,9 +67,18 @@ function ManagerPage() {
                 <h3>On Leave</h3>
                 <p className="stat-value">1</p>
               </div>
-              <div className="stat-card">
-                <h3>Pending Approvals</h3>
-                <p className="stat-value">3</p>
+              <div className="stat-card" onClick={() => setActiveComponent("tasks")}>
+                <h3>Task Approvals</h3>
+                <div className="approval-stats">
+                  <span className="approval-stat">
+                    <span className="stat-label">Pending:</span>
+                    <span className="stat-value approval-pending">3</span>
+                  </span>
+                  <span className="approval-stat">
+                    <span className="stat-label">Completed:</span>
+                    <span className="stat-value approval-completed">12</span>
+                  </span>
+                </div>
               </div>
             </div>
           </div>

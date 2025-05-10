@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import api from "../services/api"
 import { Clock, Play, Square, Calendar } from "lucide-react"
 import "./TaskTimerS.css"
+import websocketService from "../services/websocket"
 
 function TaskTimer({ task, onClose }) {
   const [isRunning, setIsRunning] = useState(false)
@@ -13,6 +14,7 @@ function TaskTimer({ task, onClose }) {
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
   const intervalRef = useRef(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
     // Fetch timer history when component mounts
@@ -70,8 +72,12 @@ function TaskTimer({ task, onClose }) {
 
   // Update the stopTimer function
   const stopTimer = async () => {
+    if (!isRunning) return
+
+    setIsSubmitting(true)
+
     try {
-      await api.post(`/tasks/${task.id}/timer/stop`)
+      const response = await api.post(`/tasks/${task.id}/timer/stop`)
 
       // Stop the timer
       if (intervalRef.current) {
@@ -85,10 +91,27 @@ function TaskTimer({ task, onClose }) {
 
       // Refresh timer history
       fetchTimerHistory()
+
+      // Send WebSocket notification to managers about progress
+      if (task.assigned_by) {
+        websocketService.send({
+          type: "task_progress_update",
+          data: {
+            task_id: task.id,
+            employee_id: task.employee_id,
+            time_spent: response.data.duration,
+            task_title: task.title,
+          },
+        })
+      }
+
+      onClose()
     } catch (err) {
       console.error("Failed to stop timer:", err)
       setError(err.response?.data?.message || "Failed to stop timer")
       setTimeout(() => setError(""), 3000)
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -159,7 +182,7 @@ function TaskTimer({ task, onClose }) {
                 Start Timer
               </button>
             ) : (
-              <button className="stop-btn" onClick={stopTimer}>
+              <button className="stop-btn" onClick={stopTimer} disabled={isSubmitting}>
                 <Square size={16} />
                 Stop Timer
               </button>

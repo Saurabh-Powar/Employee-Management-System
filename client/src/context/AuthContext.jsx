@@ -82,9 +82,9 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       await authService.logout()
-      setUser(null)
       // Disconnect WebSocket on logout
       websocketService.disconnect()
+      setUser(null)
     } catch (err) {
       console.error("Logout error:", err)
       setError(err.message || "Logout failed")

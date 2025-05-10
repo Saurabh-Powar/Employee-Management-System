@@ -24,6 +24,24 @@ function EmployeePage() {
     }
   }, [user])
 
+  useEffect(() => {
+    // Initialize WebSocket connection when user is loaded
+    if (user && user.id) {
+      import("../services/websocket").then((module) => {
+        const websocketService = module.default
+        websocketService.connect(user.id, user.role)
+      })
+    }
+
+    // Clean up WebSocket connection on unmount
+    return () => {
+      import("../services/websocket").then((module) => {
+        const websocketService = module.default
+        websocketService.disconnect()
+      })
+    }
+  }, [user])
+
   if (!user) {
     return <div className="loading">Loading...</div>
   }
@@ -44,9 +62,22 @@ function EmployeePage() {
                 <h3>Leave Balance</h3>
                 <p className="stat-value">12</p>
               </div>
-              <div className="stat-card">
-                <h3>Tasks Assigned</h3>
-                <p className="stat-value">5</p>
+              <div className="stat-card" onClick={() => setActiveComponent("tasks")}>
+                <h3>Tasks</h3>
+                <div className="task-stats">
+                  <span className="task-stat">
+                    <span className="stat-label">Assigned:</span>
+                    <span className="stat-value task-assigned">2</span>
+                  </span>
+                  <span className="task-stat">
+                    <span className="stat-label">In Progress:</span>
+                    <span className="stat-value task-in-progress">2</span>
+                  </span>
+                  <span className="task-stat">
+                    <span className="stat-label">Pending:</span>
+                    <span className="stat-value task-pending">1</span>
+                  </span>
+                </div>
               </div>
               <div className="stat-card">
                 <h3>Notifications</h3>

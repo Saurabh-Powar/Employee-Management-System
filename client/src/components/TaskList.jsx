@@ -1,504 +1,424 @@
-"use client"
+import React, { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '../context/AuthContext';
+import api from '../services/api';
+import { subscribeToEvent } from '../services/websocket';
+import TaskForm from './TaskForm';
+import TaskTimer from './TaskTimer';
+import './TaskListS.css';
 
-import { useState, useEffect } from "react"
-import { useAuth } from "../context/AuthContext"
-import api from "../services/api"
-import TaskForm from "./TaskForm"
-import TaskTimer from "./TaskTimer"
-import { Calendar, CheckCircle, Clock, Filter, Plus, Search, Tag } from "lucide-react"
-import "./TaskListS.css"
-// Add import at the top
-import websocketService from "../services/websocket"
+const TaskList = ({ role }) => {
+  const { user } = useAuth();
+  const [tasks, setTasks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [editingTask, setEditingTask] = useState(null);
+  const [activeTimers, setActiveTimers] = useState({});
+  const [filter, setFilter] = useState('all');
 
-function TaskList() {
-  const { user } = useAuth()
-  const [tasks, setTasks] = useState([])
-  const [employees, setEmployees] = useState([])
-  const [onlineEmployees, setOnlineEmployees] = useState({})
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState("")
-  const [showForm, setShowForm] = useState(false)
-  const [activeTask, setActiveTask] = useState(null)
-  const [showTimer, setShowTimer] = useState(false)
-  const [successMessage, setSuccessMessage] = useState("")
-  const [filter, setFilter] = useState("all") // all, assigned, in_progress, completed, overdue
-  const [searchTerm, setSearchTerm] = useState("")
-  const [refreshTrigger, setRefreshTrigger] = useState(0)
-  const [currentEmployeeId, setCurrentEmployeeId] = useState(null)
+  // Status display mapping for UI
+  const statusDisplay = {
+    'pending': 'Pending',
+    'in_progress': 'In Progress',
+    'pending_completion': 'Pending Approval',
+    'completed': 'Completed',
+    'cancelled': 'Cancelled'
+  };
 
-  // Function to trigger a refresh of task data
-  const triggerRefresh = () => {
-    setRefreshTrigger((prev) => prev + 1)
-  }
+  // Status colors for UI
+  const statusColors = {
+    'pending': '#f0ad4e',
+    'in_progress': '#5bc0de',
+    'pending_completion': '#6f42c1',
+    'completed': '#5cb85c',
+    'cancelled': '#d9534f'
+  };
 
-  // Get current employee ID based on user ID
-  const getCurrentEmployeeId = async () => {
-    if (!user) return null
+  // Priority display and colors
+  const priorityDisplay = {
+    'low': 'Low',
+    'medium': 'Medium',
+    'high': 'High'
+  };
 
+  const priorityColors = {
+    'low': '#5cb85c',
+    'medium': '#f0ad4e',
+    'high': '#d9534f'
+  };
+
+  const fetchTasks = useCallback(async () => {
     try {
-      // For employees, we need to find their employee ID
-      if (user.role === "employee" || user.role === "manager" || user.role === "admin") {
-        // Get all employees and find the one matching the current user ID
-        const response = await api.get("/employees")
-        const employee = response.data.find((emp) => emp.user_id === user.id)
+      setLoading(true);
+      let response;
 
-        if (employee) {
-          setCurrentEmployeeId(employee.id)
-          return employee.id
-        }
-      }
-
-      return null
-    } catch (err) {
-      console.error("Error getting current employee ID:", err)
-      return null
-    }
-  }
-
-  // Update the fetchTasks function to properly handle API responses
-  const fetchTasks = async () => {
-    setLoading(true)
-    setError("")
-
-    if (!user) {
-      setLoading(false)
-      return
-    }
-
-    try {
-      let response
-
-      if (user.role === "manager" || user.role === "admin") {
-        // Managers and admins see all tasks
-        response = await api.get("/tasks")
+      if (role === 'admin') {
+        response = await api.get('/tasks');
+      } else if (role === 'manager') {
+        response = await api.get(`/tasks/manager/${user.id}`);
       } else {
-        // For employees, fetch only their tasks
-        const employeeId = currentEmployeeId || (await getCurrentEmployeeId())
-
-        if (employeeId) {
-          response = await api.get(`/tasks/${employeeId}`)
-        } else {
-          throw new Error("Employee record not found")
-        }
+        response = await api.get(`/tasks/employee/${user.id}`);
       }
 
-      if (response && response.data) {
-        setTasks(response.data)
-      } else {
-        setTasks([])
-      }
+      // Use UI status if available, otherwise use DB status
+      const tasksWithStatus = response.data.map(task => ({
+        ...task,
+        status: task.ui_status || task.status
+      }));
+
+      setTasks(tasksWithStatus);
+      setError(null);
     } catch (err) {
-      console.error("Failed to fetch tasks:", err)
-      setError("Failed to load tasks. Please try again.")
-      setTasks([])
+      console.error('Error fetching tasks:', err);
+      setError('Failed to load tasks. Please try again later.');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  }, [role, user]);
 
-  const fetchEmployees = async () => {
-    if (user && (user.role === "manager" || user.role === "admin")) {
-      try {
-        const response = await api.get("/employees")
+  useEffect(() => {
+    if (user && user.id) {
+      fetchTasks();
+    }
+  }, [user, fetchTasks]);
 
-        // Filter out the current manager from the list
-        const currentManagerId = currentEmployeeId || (await getCurrentEmployeeId())
-        const filteredEmployees = response.data.filter(
-          (emp) => emp.id !== currentManagerId && emp.role !== "manager" && emp.role !== "admin",
-        )
-
-        setEmployees(filteredEmployees)
-
-        // Set up online status simulation
-        const onlineStatus = {}
-        filteredEmployees.forEach((emp) => {
-          // Randomly set some employees as online for demo purposes
-          onlineStatus[emp.id] = Math.random() > 0.5
-        })
-        setOnlineEmployees(onlineStatus)
-      } catch (err) {
-        console.error("Failed to fetch employees:", err)
+  useEffect(() => {
+    // Subscribe to WebSocket events
+    const taskCreatedUnsub = subscribeToEvent('task-created', (newTask) => {
+      if ((role === 'employee' && newTask.assigned_to === user.id) ||
+          (role === 'manager' && newTask.created_by === user.id) ||
+          role === 'admin') {
+        setTasks(prevTasks => {
+          // Check if task already exists
+          const exists = prevTasks.some(task => task.id === newTask.id);
+          if (exists) {
+            return prevTasks;
+          }
+          return [...prevTasks, { ...newTask, status: newTask.ui_status || newTask.status }];
+        });
       }
-    }
-  }
+    });
 
-  // Simulate updating online status
-  const updateOnlineStatus = () => {
-    const updatedStatus = { ...onlineEmployees }
-    Object.keys(updatedStatus).forEach((id) => {
-      // Randomly change some statuses for demo
-      if (Math.random() > 0.8) {
-        updatedStatus[id] = !updatedStatus[id]
+    const taskUpdatedUnsub = subscribeToEvent('task-updated', (updatedTask) => {
+      if ((role === 'employee' && updatedTask.assigned_to === user.id) ||
+          (role === 'manager' && updatedTask.created_by === user.id) ||
+          role === 'admin') {
+        setTasks(prevTasks => 
+          prevTasks.map(task => 
+            task.id === updatedTask.id 
+              ? { ...updatedTask, status: updatedTask.ui_status || updatedTask.status } 
+              : task
+          )
+        );
       }
-    })
-    setOnlineEmployees(updatedStatus)
-  }
+    });
 
-  useEffect(() => {
-    if (user) {
-      getCurrentEmployeeId().then(() => {
-        fetchTasks()
-        fetchEmployees()
-      })
+    const taskDeletedUnsub = subscribeToEvent('task-deleted', (deletedTask) => {
+      setTasks(prevTasks => prevTasks.filter(task => task.id !== deletedTask.id));
+    });
 
-      // Set up polling for online status
-      const intervalId = setInterval(() => {
-        updateOnlineStatus()
-      }, 30000) // Update every 30 seconds
-
-      return () => clearInterval(intervalId)
-    }
-  }, [user, refreshTrigger])
-
-  // Refetch when currentEmployeeId changes
-  useEffect(() => {
-    if (currentEmployeeId) {
-      fetchTasks()
-      fetchEmployees()
-    }
-  }, [currentEmployeeId])
-
-  // Add a useEffect hook for WebSocket listeners
-  useEffect(() => {
-    // Set up WebSocket listener for task status updates
-    const taskStatusListener = websocketService.on("task_status_update", (data) => {
-      console.log("Received task status update via WebSocket:", data)
-      fetchTasks() // Refresh the tasks
-    })
-
-    // Set up WebSocket listener for task completion requests
-    const taskCompletionListener = websocketService.on("task_completion_request", (data) => {
-      console.log("Received task completion request via WebSocket:", data)
-      fetchTasks() // Refresh the tasks
-    })
-
-    // Clean up listeners on unmount
+    // Cleanup subscriptions
     return () => {
-      taskStatusListener()
-      taskCompletionListener()
-    }
-  }, [])
+      taskCreatedUnsub();
+      taskUpdatedUnsub();
+      taskDeletedUnsub();
+    };
+  }, [role, user]);
 
-  const handleCreateTask = (newTask) => {
-    setTasks((prev) => [newTask, ...prev])
-    setSuccessMessage("Task created successfully")
-    setTimeout(() => setSuccessMessage(""), 3000)
-  }
-
-  const handleUpdateStatus = async (taskId, newStatus) => {
+  const handleCreateTask = async (taskData) => {
     try {
-      await api.put(`/tasks/${taskId}/status`, { status: newStatus })
-      setTasks((prev) =>
-        prev.map((task) => (task.id === taskId ? { ...task, status: newStatus, updated_at: new Date() } : task)),
-      )
-      setSuccessMessage(`Task status updated to ${newStatus}`)
-      setTimeout(() => setSuccessMessage(""), 3000)
+      await api.post('/tasks', {
+        ...taskData,
+        created_by: user.id
+      });
+      setShowForm(false);
+      fetchTasks();
     } catch (err) {
-      console.error("Failed to update task status:", err)
-      setError("Failed to update task status. Please try again.")
+      console.error('Error creating task:', err);
+      setError('Failed to create task. Please try again.');
     }
-  }
+  };
+
+  const handleUpdateTask = async (taskData) => {
+    try {
+      await api.put(`/tasks/${editingTask.id}`, taskData);
+      setShowForm(false);
+      setEditingTask(null);
+      fetchTasks();
+    } catch (err) {
+      console.error('Error updating task:', err);
+      setError('Failed to update task. Please try again.');
+    }
+  };
 
   const handleDeleteTask = async (taskId) => {
-    if (!window.confirm("Are you sure you want to delete this task?")) return
+    if (window.confirm('Are you sure you want to delete this task?')) {
+      try {
+        await api.delete(`/tasks/${taskId}`);
+        setTasks(prevTasks => prevTasks.filter(task => task.id !== taskId));
+      } catch (err) {
+        console.error('Error deleting task:', err);
+        setError('Failed to delete task. Please try again.');
+      }
+    }
+  };
 
+  const handleStatusChange = async (taskId, newStatus) => {
     try {
-      await api.delete(`/tasks/${taskId}`)
-      setTasks((prev) => prev.filter((task) => task.id !== taskId))
-      setSuccessMessage("Task deleted successfully")
-      setTimeout(() => setSuccessMessage(""), 3000)
+      await api.put(`/tasks/${taskId}/status`, {
+        status: newStatus,
+        employee_id: user.id
+      });
+      
+      // Update local state immediately for better UX
+      setTasks(prevTasks => 
+        prevTasks.map(task => 
+          task.id === taskId 
+            ? { ...task, status: newStatus } 
+            : task
+        )
+      );
     } catch (err) {
-      console.error("Failed to delete task:", err)
-      setError("Failed to delete task. Please try again.")
+      console.error('Error updating task status:', err);
+      setError('Failed to update task status. Please try again.');
+      // Revert the optimistic update
+      fetchTasks();
     }
-  }
+  };
 
-  const handleStartTimer = (task) => {
-    setActiveTask(task)
-    setShowTimer(true)
-  }
-
-  const handleTimerClose = () => {
-    setShowTimer(false)
-    setActiveTask(null)
-    triggerRefresh() // Refresh tasks to get updated time spent
-  }
-
-  // Add a new function to handle requesting task completion
-  const handleRequestCompletion = async (taskId) => {
-    try {
-      await api.put(`/tasks/${taskId}/status`, { status: "pending_completion" })
-      setTasks((prev) =>
-        prev.map((task) =>
-          task.id === taskId ? { ...task, status: "pending_completion", updated_at: new Date() } : task,
-        ),
-      )
-      setSuccessMessage(`Completion request submitted for manager approval`)
-      setTimeout(() => setSuccessMessage(""), 3000)
-    } catch (err) {
-      console.error("Failed to request task completion:", err)
-      setError("Failed to request task completion. Please try again.")
+  const handleStartTimer = (taskId) => {
+    setActiveTimers(prev => ({
+      ...prev,
+      [taskId]: true
+    }));
+    
+    // If task is pending, change status to in_progress
+    const task = tasks.find(t => t.id === taskId);
+    if (task && task.status === 'pending') {
+      handleStatusChange(taskId, 'in_progress');
     }
+  };
+
+  const handleStopTimer = (taskId, timeSpent) => {
+    setActiveTimers(prev => {
+      const newTimers = { ...prev };
+      delete newTimers[taskId];
+      return newTimers;
+    });
+    
+    console.log(`Task ${taskId} timer stopped. Time spent: ${timeSpent} seconds`);
+    // Here you could update the task with the time spent
+  };
+
+  const handleEditTask = (task) => {
+    setEditingTask(task);
+    setShowForm(true);
+  };
+
+  const filteredTasks = tasks.filter(task => {
+    if (filter === 'all') return true;
+    return task.status === filter;
+  });
+
+  if (loading && tasks.length === 0) {
+    return <div className="loading">Loading tasks...</div>;
   }
-
-  // Update the getStatusClass function to include the new status
-  const getStatusClass = (status) => {
-    switch (status) {
-      case "assigned":
-        return "status-assigned"
-      case "in_progress":
-        return "status-in-progress"
-      case "pending_completion":
-        return "status-pending"
-      case "completed":
-        return "status-completed"
-      case "overdue":
-        return "status-overdue"
-      default:
-        return ""
-    }
-  }
-
-  const formatTimeSpent = (seconds) => {
-    if (!seconds) return "0h 0m"
-    const hours = Math.floor(seconds / 3600)
-    const minutes = Math.floor((seconds % 3600) / 60)
-    return `${hours}h ${minutes}m`
-  }
-
-  const formatDueDate = (dateString) => {
-    const date = new Date(dateString)
-    return date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    })
-  }
-
-  const isOverdue = (dueDate) => {
-    const now = new Date()
-    const due = new Date(dueDate)
-    return due < now
-  }
-
-  // Filter and search tasks
-  const filteredTasks = tasks.filter((task) => {
-    // First apply status filter
-    const statusMatch =
-      filter === "all"
-        ? true
-        : filter === "overdue"
-          ? isOverdue(task.due_date) && task.status !== "completed"
-          : task.status === filter
-
-    // Then apply search filter
-    const searchMatch =
-      searchTerm === ""
-        ? true
-        : task.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          (task.description && task.description.toLowerCase().includes(searchTerm.toLowerCase()))
-
-    return statusMatch && searchMatch
-  })
 
   return (
     <div className="task-list-container">
       <div className="task-list-header">
-        <h2>Task Management</h2>
-        {(user.role === "manager" || user.role === "admin") && (
-          <button className="add-task-btn" onClick={() => setShowForm(true)}>
-            <Plus size={16} /> Assign New Task
-          </button>
-        )}
+        <h2>Tasks Management</h2>
+        <div className="task-controls">
+          <div className="filter-controls">
+            <label htmlFor="status-filter">Filter by status:</label>
+            <select 
+              id="status-filter"
+              value={filter} 
+              onChange={(e) => setFilter(e.target.value)}
+              className="status-filter"
+            >
+              <option value="all">All Tasks</option>
+              <option value="pending">Pending</option>
+              <option value="in_progress">In Progress</option>
+              <option value="pending_completion">Pending Approval</option>
+              <option value="completed">Completed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+          
+          {(role === 'admin' || role === 'manager') && (
+            <button 
+              className="create-task-btn"
+              onClick={() => {
+                setEditingTask(null);
+                setShowForm(true);
+              }}
+              aria-label="Create new task"
+              title="Create new task"
+            >
+              Create Task
+            </button>
+          )}
+        </div>
       </div>
 
       {error && <div className="error-message">{error}</div>}
-      {successMessage && <div className="success-message">{successMessage}</div>}
 
-      <div className="task-controls">
-        <div className="search-container">
-          <Search size={16} className="search-icon" />
-          <input
-            type="text"
-            placeholder="Search tasks..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="search-input"
-          />
+      {showForm && (
+        <div className="task-form-overlay">
+          <div className="task-form-container">
+            <button 
+              className="close-form-btn" 
+              onClick={() => {
+                setShowForm(false);
+                setEditingTask(null);
+              }}
+              aria-label="Close form"
+              title="Close form"
+            >
+              ×
+            </button>
+            <TaskForm 
+              onSubmit={editingTask ? handleUpdateTask : handleCreateTask}
+              initialData={editingTask}
+              formTitle={editingTask ? 'Edit Task' : 'Create New Task'}
+            />
+          </div>
         </div>
+      )}
 
-        <div className="task-filters">
-          <Filter size={16} className="filter-icon" />
-          <button className={`filter-btn ${filter === "all" ? "active" : ""}`} onClick={() => setFilter("all")}>
-            All
-          </button>
-          <button
-            className={`filter-btn ${filter === "assigned" ? "active" : ""}`}
-            onClick={() => setFilter("assigned")}
-          >
-            Assigned
-          </button>
-          <button
-            className={`filter-btn ${filter === "in_progress" ? "active" : ""}`}
-            onClick={() => setFilter("in_progress")}
-          >
-            In Progress
-          </button>
-          <button
-            className={`filter-btn ${filter === "pending_completion" ? "active" : ""}`}
-            onClick={() => setFilter("pending_completion")}
-          >
-            Pending Approval
-          </button>
-          <button
-            className={`filter-btn ${filter === "completed" ? "active" : ""}`}
-            onClick={() => setFilter("completed")}
-          >
-            Completed
-          </button>
-          <button className={`filter-btn ${filter === "overdue" ? "active" : ""}`} onClick={() => setFilter("overdue")}>
-            Overdue
-          </button>
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="loading-container">
-          <div className="loading-spinner"></div>
-          <p>Loading tasks...</p>
-        </div>
-      ) : filteredTasks.length === 0 ? (
+      {filteredTasks.length === 0 ? (
         <div className="no-tasks">
-          <div className="no-tasks-icon">📋</div>
-          <h3>No tasks found</h3>
-          <p>
-            {searchTerm
-              ? "Try adjusting your search terms"
-              : filter !== "all"
-                ? `No ${filter.replace("_", " ")} tasks found`
-                : user.role === "employee"
-                  ? "You don't have any tasks assigned to you yet"
-                  : "No tasks have been created yet"}
-          </p>
+          <p>No tasks found. {filter !== 'all' ? 'Try changing the filter.' : ''}</p>
         </div>
       ) : (
         <div className="tasks-grid">
-          {filteredTasks.map((task) => (
-            <div
-              key={task.id}
-              className={`task-card ${getStatusClass(task.status)} ${
-                isOverdue(task.due_date) && task.status !== "completed" ? "overdue" : ""
-              }`}
-            >
+          {filteredTasks.map(task => (
+            <div key={task.id} className="task-card">
               <div className="task-header">
                 <h3 className="task-title">{task.title}</h3>
-                <div className={`task-priority priority-${task.priority}`}>
-                  <Tag size={12} />
-                  {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}
+                <div 
+                  className="task-priority"
+                  style={{ backgroundColor: priorityColors[task.priority] }}
+                >
+                  {priorityDisplay[task.priority]}
                 </div>
               </div>
-
-              <div className="task-description">{task.description || "No description provided"}</div>
-
-              <div className="task-meta">
-                {user.role === "manager" || user.role === "admin" ? (
-                  <div className="task-assignee">
-                    <span className="meta-label">Assigned to:</span>
-                    <span className="employee-name">
-                      {task.employee_name || "Unknown"}
-                      {onlineEmployees[task.employee_id] !== undefined && (
-                        <span
-                          className={`online-status ${onlineEmployees[task.employee_id] ? "online" : "offline"}`}
-                          title={onlineEmployees[task.employee_id] ? "Online" : "Offline"}
-                        >
-                          •
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="task-assignee">
-                    <span className="meta-label">Assigned by:</span> {task.assigned_by_name || "Manager"}
+              
+              <div className="task-description">{task.description}</div>
+              
+              <div className="task-details">
+                <div className="task-detail">
+                  <span className="detail-label">Due Date:</span>
+                  <span className="detail-value">
+                    {new Date(task.due_date).toLocaleDateString()}
+                  </span>
+                </div>
+                
+                <div className="task-detail">
+                  <span className="detail-label">Status:</span>
+                  <span 
+                    className="detail-value status-badge"
+                    style={{ backgroundColor: statusColors[task.status] }}
+                  >
+                    {statusDisplay[task.status]}
+                  </span>
+                </div>
+                
+                {task.estimated_hours && (
+                  <div className="task-detail">
+                    <span className="detail-label">Est. Hours:</span>
+                    <span className="detail-value">{task.estimated_hours}</span>
                   </div>
                 )}
-
-                <div className="task-due-date">
-                  <Calendar size={14} className="meta-icon" />
-                  <span className="meta-label">Due:</span> {formatDueDate(task.due_date)}
-                  {isOverdue(task.due_date) && task.status !== "completed" && (
-                    <span className="overdue-badge">Overdue</span>
-                  )}
-                </div>
-
-                <div className="task-time-spent">
-                  <Clock size={14} className="meta-icon" />
-                  <span className="meta-label">Time spent:</span> {formatTimeSpent(task.time_spent)}
-                </div>
               </div>
-
-              <div className="task-status">
-                <span className="meta-label">Status:</span>
-                <span className={`status-badge ${getStatusClass(task.status)}`}>
-                  {task.status.replace("_", " ").charAt(0).toUpperCase() + task.status.replace("_", " ").slice(1)}
-                </span>
-              </div>
-
+              
               <div className="task-actions">
-                {user.role === "employee" && task.status !== "completed" && task.status !== "pending_completion" && (
-                  <button className="timer-btn" onClick={() => handleStartTimer(task)}>
-                    <Clock size={14} />
-                    {task.status === "in_progress" ? "Continue Working" : "Start Working"}
-                  </button>
-                )}
-
-                {user.role === "employee" && (task.status === "assigned" || task.status === "in_progress") && (
-                  <button className="complete-btn" onClick={() => handleRequestCompletion(task.id)}>
-                    <CheckCircle size={14} />
-                    Request Completion
-                  </button>
-                )}
-
-                {user.role === "employee" && task.status === "pending_completion" && (
-                  <span className="pending-badge">Awaiting Approval</span>
-                )}
-
-                {(user.role === "manager" || user.role === "admin") && task.status === "pending_completion" && (
+                {role === 'employee' && task.status !== 'completed' && task.status !== 'cancelled' && (
                   <>
-                    <button className="approve-btn" onClick={() => handleUpdateStatus(task.id, "completed")}>
-                      <CheckCircle size={14} />
-                      Approve Completion
-                    </button>
-                    <button className="reject-btn" onClick={() => handleUpdateStatus(task.id, "in_progress")}>
-                      Reject & Return
-                    </button>
+                    {task.status === 'in_progress' && (
+                      <button 
+                        className="task-action-btn request-completion"
+                        onClick={() => handleStatusChange(task.id, 'pending_completion')}
+                        aria-label="Request completion approval"
+                        title="Request completion approval"
+                      >
+                        Request Approval
+                      </button>
+                    )}
+                    
+                    {task.status === 'pending' && (
+                      <button 
+                        className="task-action-btn start-task"
+                        onClick={() => handleStatusChange(task.id, 'in_progress')}
+                        aria-label="Start task"
+                        title="Start task"
+                      >
+                        Start Task
+                      </button>
+                    )}
+                    
+                    {!activeTimers[task.id] && task.status === 'in_progress' && (
+                      <button 
+                        className="task-action-btn start-timer"
+                        onClick={() => handleStartTimer(task.id)}
+                        aria-label="Start timer"
+                        title="Start timer"
+                      >
+                        Start Timer
+                      </button>
+                    )}
                   </>
                 )}
-
-                {(user.role === "manager" || user.role === "admin") &&
-                  task.status !== "pending_completion" &&
-                  task.status !== "completed" && (
-                    <button className="complete-btn" onClick={() => handleUpdateStatus(task.id, "completed")}>
-                      <CheckCircle size={14} />
-                      Mark Complete
+                
+                {(role === 'admin' || role === 'manager') && (
+                  <>
+                    <button 
+                      className="task-action-btn edit-task"
+                      onClick={() => handleEditTask(task)}
+                      aria-label="Edit task"
+                      title="Edit task"
+                    >
+                      Edit
                     </button>
-                  )}
-
-                {(user.role === "manager" || user.role === "admin") && (
-                  <button className="delete-btn" onClick={() => handleDeleteTask(task.id)}>
-                    Delete
-                  </button>
+                    
+                    <button 
+                      className="task-action-btn delete-task"
+                      onClick={() => handleDeleteTask(task.id)}
+                      aria-label="Delete task"
+                      title="Delete task"
+                    >
+                      Delete
+                    </button>
+                    
+                    {task.status === 'pending_completion' && (
+                      <button 
+                        className="task-action-btn approve-task"
+                        onClick={() => handleStatusChange(task.id, 'completed')}
+                        aria-label="Approve completion"
+                        title="Approve completion"
+                      >
+                        Approve
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
+              
+              {activeTimers[task.id] && (
+                <div className="task-timer-container">
+                  <TaskTimer 
+                    taskId={task.id}
+                    onStop={(timeSpent) => handleStopTimer(task.id, timeSpent)}
+                  />
+                </div>
+              )}
             </div>
           ))}
         </div>
       )}
-
-      {showForm && <TaskForm onClose={() => setShowForm(false)} onSubmit={handleCreateTask} employees={employees} />}
-
-      {showTimer && activeTask && <TaskTimer task={activeTask} onClose={handleTimerClose} />}
     </div>
-  )
-}
+  );
+};
 
-export default TaskList
+export default TaskList;
