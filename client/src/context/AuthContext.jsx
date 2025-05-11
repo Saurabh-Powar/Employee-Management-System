@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useEffect } from "react"
 import authService from "../services/auth"
-import { initWebSocket, sendAuth, sendMessage, addEventListener, removeEventListener, closeWebSocket, subscribeToEvent, isConnected } from "../services/websocket"
+import { initWebSocket, closeWebSocket } from "../services/websocket"
 
 const AuthContext = createContext()
 

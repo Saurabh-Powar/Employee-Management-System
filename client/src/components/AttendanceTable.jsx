@@ -26,6 +26,8 @@ function AttendanceTable({ allowMarking = false }) {
   const [selectedEmployee, setSelectedEmployee] = useState(null)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
   const [employeeShifts, setEmployeeShifts] = useState({})
+  const [showConfirmation, setShowConfirmation] = useState(false)
+  const [confirmationData, setConfirmationData] = useState(null)
 
   // Function to trigger a refresh of attendance data
   const triggerRefresh = useCallback(() => {
@@ -133,14 +135,18 @@ function AttendanceTable({ allowMarking = false }) {
   // Add a useEffect hook for WebSocket listeners
   useEffect(() => {
     // Set up WebSocket listener for attendance updates
-    const removeListener = websocketService.on("attendance_update", (data) => {
+    const removeListener = websocketService.subscribeToEvent("attendance_update", (data) => {
       console.log("Received attendance update via WebSocket:", data)
       triggerRefresh() // Refresh the attendance data
     })
 
+    // Keep WebSocket connection alive
+    const cleanupKeepAlive = websocketService.setupKeepAlive(30000)
+
     // Clean up listener on unmount
     return () => {
       removeListener()
+      cleanupKeepAlive()
     }
   }, [triggerRefresh])
 
@@ -153,7 +159,15 @@ function AttendanceTable({ allowMarking = false }) {
     fetchAttendanceData() // Refresh data when popup closes
   }
 
+  const showCorrectionConfirmation = (employee) => {
+    setConfirmationData({ employee, action: "correction" })
+    setShowConfirmation(true)
+  }
+
   const handleCorrectionClick = (employee) => {
+    // Hide confirmation dialog
+    setShowConfirmation(false)
+
     // Make sure we have all the employee data needed for the correction form
     const employeeData = {
       ...employee,
@@ -214,7 +228,6 @@ function AttendanceTable({ allowMarking = false }) {
     })
   }
 
-  // Replace the current isLate function with this improved one
   // Function to determine if an employee was late based on their shift
   const isLate = (record) => {
     if (!record || !record.check_in || record.status === "absent") return false
@@ -288,14 +301,7 @@ function AttendanceTable({ allowMarking = false }) {
                 )}
                 {showId && <td>{r.department || "N/A"}</td>}
                 <td>{formatDate(r.date)}</td>
-                {/* Also update the check-in cell to include better accessibility for the late icon: */}
-                {/* Find this line: */}
-                {/* <td className={employeeLate ? "late-check-in" : ""}>
-                  {formatTime(r.check_in)}
-                  {employeeLate && <AlertCircle size={14} className="late-icon" title="Late check-in" />}
-                </td> */}
 
-                {/* Replace with: */}
                 <td className={employeeLate ? "late-check-in" : ""}>
                   {formatTime(r.check_in)}
                   {employeeLate && (
@@ -306,13 +312,7 @@ function AttendanceTable({ allowMarking = false }) {
                 </td>
                 <td>{formatTime(r.check_out)}</td>
                 <td>{r.hours_worked ?? "--"}</td>
-                {/* In the render function, modify the status badge to use accessibility features: */}
-                {/* Find this line in the render function: */}
-                {/* <td className={`status-${r.status}`}>
-                  <span className="status-badge">{r.status}</span>
-                </td> */}
 
-                {/* Replace it with: */}
                 <td className={`status-${r.status}`}>
                   <span
                     className="status-badge"
@@ -325,19 +325,9 @@ function AttendanceTable({ allowMarking = false }) {
                 {(user.role === "admin" || user.role === "manager") && (
                   <td>
                     {!isOwnRecord ? (
-                      /* Update the edit button to use the Lucide icon and better accessibility: */
-                      /* <button
-                        className="edit-attendance-btn"
-                        onClick={() => handleCorrectionClick(r)}
-                        aria-label="Edit attendance"
-                        title="Edit attendance record"
-                      >
-                        <i className="edit-icon"></i>
-                        Edit
-                      </button> */
                       <button
                         className="edit-attendance-btn"
-                        onClick={() => handleCorrectionClick(r)}
+                        onClick={() => showCorrectionConfirmation(r)}
                         aria-label={`Edit attendance for ${r.first_name} ${r.last_name}`}
                         title={`Edit attendance record for ${r.first_name} ${r.last_name}`}
                       >
@@ -359,20 +349,29 @@ function AttendanceTable({ allowMarking = false }) {
     )
   }
 
-  if (loading)
+  if (loading && !own.length && !team.length) {
     return (
       <div className="loading-container">
         <div className="loading-spinner"></div>
         <p>Loading attendance data...</p>
       </div>
     )
+  }
 
   return (
     <div className="attendance-table-container">
       <h2 className="attendance-title">Attendance Dashboard</h2>
 
-      {error && <div className="error-message">{error}</div>}
-      {successMessage && <div className="success-message">{successMessage}</div>}
+      {error && (
+        <div className="error-message" role="alert">
+          {error}
+        </div>
+      )}
+      {successMessage && (
+        <div className="success-message" role="status">
+          {successMessage}
+        </div>
+      )}
 
       <div className="attendance-actions-bar">
         {/* Show attendance marking for employees and managers */}
@@ -388,7 +387,12 @@ function AttendanceTable({ allowMarking = false }) {
                   <p>You haven't marked attendance today</p>
                 )}
               </div>
-              <button className="attendance-status-btn" onClick={handleAttendanceClick} disabled={accessBlocked}>
+              <button
+                className="attendance-status-btn"
+                onClick={handleAttendanceClick}
+                disabled={accessBlocked}
+                aria-label="Mark attendance"
+              >
                 <Clock size={16} />
                 Mark Attendance
               </button>
@@ -397,19 +401,15 @@ function AttendanceTable({ allowMarking = false }) {
           </div>
         )}
 
-        {/* Update the refresh button to use the Lucide icon: */}
-        {/* <button className="refresh-btn" onClick={triggerRefresh} title="Refresh attendance data">
-          <RefreshCw size={16} />
-          Refresh
-        </button> */}
         <button
           className="refresh-btn"
           onClick={triggerRefresh}
           title="Refresh attendance data"
           aria-label="Refresh attendance data"
+          disabled={loading}
         >
-          <RefreshCw size={16} />
-          <span>Refresh</span>
+          <RefreshCw size={16} className={loading ? "icon-spin" : ""} />
+          <span>{loading ? "Loading..." : "Refresh"}</span>
         </button>
       </div>
 
@@ -453,6 +453,35 @@ function AttendanceTable({ allowMarking = false }) {
         <div className="attendance-section">
           <h3>Your Attendance Records</h3>
           {render(own)}
+        </div>
+      )}
+
+      {/* Confirmation Dialog */}
+      {showConfirmation && confirmationData && (
+        <div className="confirmation-overlay">
+          <div className="confirmation-dialog" role="dialog" aria-labelledby="confirm-dialog-title">
+            <h3 id="confirm-dialog-title">Confirm Action</h3>
+            <p>
+              {confirmationData.action === "correction"
+                ? `Are you sure you want to edit the attendance record for ${confirmationData.employee.first_name} ${confirmationData.employee.last_name}?`
+                : "Are you sure you want to proceed with this action?"}
+            </p>
+            <div className="confirmation-actions">
+              <button
+                className="confirm-btn"
+                onClick={() => {
+                  if (confirmationData.action === "correction") {
+                    handleCorrectionClick(confirmationData.employee)
+                  }
+                }}
+              >
+                Yes, Proceed
+              </button>
+              <button className="cancel-btn" onClick={() => setShowConfirmation(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

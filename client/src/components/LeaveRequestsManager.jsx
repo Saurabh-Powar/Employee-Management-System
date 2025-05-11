@@ -1,10 +1,11 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "../context/AuthContext"
 import api from "../services/api"
 import "./LeaveRequestsManagerS.css"
 import websocketService from "../services/websocket"
+import { RefreshCw, CheckCircle, X } from "lucide-react"
 
 function LeaveRequestsManager() {
   const { user } = useAuth()
@@ -12,21 +13,27 @@ function LeaveRequestsManager() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [successMessage, setSuccessMessage] = useState("")
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false)
+  const [confirmData, setConfirmData] = useState(null)
 
-  // Fix the fetchLeaveRequests function to properly handle API responses
-  const fetchLeaveRequests = async () => {
+  // Improved fetchLeaveRequests function with better error handling
+  const fetchLeaveRequests = useCallback(async () => {
     if (!user || (user.role !== "manager" && user.role !== "admin")) return
 
     setLoading(true)
     setError("")
+
     try {
       const response = await api.get("/leaves")
-      if (response.data && response.data.leaves) {
+
+      if (response.data && Array.isArray(response.data.leaves)) {
         setLeaveRequests(response.data.leaves)
+      } else if (response.data && Array.isArray(response.data)) {
+        setLeaveRequests(response.data)
       } else {
         setLeaveRequests([])
-        if (response.data.length === 0) {
-          setError("No leave requests available.")
+        if (!response.data || response.data.length === 0) {
+          console.log("No leave requests available.")
         }
       }
     } catch (err) {
@@ -35,42 +42,53 @@ function LeaveRequestsManager() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [user])
 
   useEffect(() => {
     if (user?.id) {
       fetchLeaveRequests()
     }
-  }, [user?.id])
+  }, [user?.id, fetchLeaveRequests])
 
-  // Add a useEffect hook for WebSocket listeners
+  // Set up WebSocket listeners for real-time updates
   useEffect(() => {
-    // Set up WebSocket listener for new leave requests
-    const newLeaveListener = websocketService.on("new_leave_request", (data) => {
+    const newLeaveListener = websocketService.subscribeToEvent("new_leave_request", (data) => {
       console.log("Received new leave request via WebSocket:", data)
-      fetchLeaveRequests() // Refresh the leave requests
+      fetchLeaveRequests()
     })
 
-    // Set up WebSocket listener for leave updates
-    const leaveUpdateListener = websocketService.on("leave_update", (data) => {
+    const leaveUpdateListener = websocketService.subscribeToEvent("leave_update", (data) => {
       console.log("Received leave update via WebSocket:", data)
-      fetchLeaveRequests() // Refresh the leave requests
+      fetchLeaveRequests()
     })
+
+    // Keep WebSocket connection alive
+    const cleanupKeepAlive = websocketService.setupKeepAlive(30000)
 
     // Clean up listeners on unmount
     return () => {
       newLeaveListener()
       leaveUpdateListener()
+      cleanupKeepAlive()
     }
-  }, [])
+  }, [fetchLeaveRequests])
 
-  // Improve the handleUpdateStatus function to better handle errors and state updates
+  // Show confirmation dialog
+  const showConfirm = (leaveId, status) => {
+    setConfirmData({ leaveId, status })
+    setShowConfirmDialog(true)
+  }
+
+  // Handle leave status update with improved error handling
   const handleUpdateStatus = async (leaveId, status) => {
+    setShowConfirmDialog(false)
+
     try {
+      setLoading(true)
       const response = await api.put(`/leaves/${leaveId}`, { status })
 
       if (response.status === 200) {
-        // Update local state
+        // Optimistic UI update
         setLeaveRequests((prev) => prev.map((leave) => (leave.id === leaveId ? { ...leave, status } : leave)))
 
         setSuccessMessage(`Leave request ${status} successfully.`)
@@ -79,8 +97,11 @@ function LeaveRequestsManager() {
         setTimeout(() => {
           setSuccessMessage("")
         }, 3000)
+
+        // Refresh data to ensure consistency
+        fetchLeaveRequests()
       } else {
-        throw new Error("Unexpected response from server")
+        throw new Error(response.data?.message || "Unexpected response from server")
       }
     } catch (err) {
       console.error(`Failed to ${status} leave request:`, err)
@@ -90,6 +111,8 @@ function LeaveRequestsManager() {
       setTimeout(() => {
         setError("")
       }, 5000)
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -97,18 +120,39 @@ function LeaveRequestsManager() {
     return <p>You do not have permission to view leave requests.</p>
   }
 
-  if (loading) return <p className="loading-message">Loading leave requests...</p>
+  if (loading && leaveRequests.length === 0) {
+    return (
+      <div className="loading-container">
+        <div className="loading-spinner"></div>
+        <p className="loading-message">Loading leave requests...</p>
+      </div>
+    )
+  }
 
   return (
     <div className="leave-requests-container">
       <h2>Leave Requests Management</h2>
 
-      {error && <div className="error-message">{error}</div>}
-      {successMessage && <div className="success-message">{successMessage}</div>}
+      {error && (
+        <div className="error-message" role="alert">
+          {error}
+        </div>
+      )}
+      {successMessage && (
+        <div className="success-message" role="status">
+          {successMessage}
+        </div>
+      )}
 
       <div className="action-bar">
-        <button className="refresh-btn" onClick={fetchLeaveRequests}>
-          Refresh Requests
+        <button
+          className="refresh-btn"
+          onClick={fetchLeaveRequests}
+          disabled={loading}
+          aria-label="Refresh leave requests"
+        >
+          <RefreshCw size={16} />
+          <span>{loading ? "Loading..." : "Refresh Requests"}</span>
         </button>
       </div>
 
@@ -150,11 +194,21 @@ function LeaveRequestsManager() {
                   <td className="actions">
                     {leave.status === "pending" && (
                       <>
-                        <button className="approve-btn" onClick={() => handleUpdateStatus(leave.id, "approved")}>
-                          Approve
+                        <button
+                          className="approve-btn"
+                          onClick={() => showConfirm(leave.id, "approved")}
+                          aria-label={`Approve leave request for ${leave.employee_name || `Employee #${leave.employee_id}`}`}
+                        >
+                          <CheckCircle size={16} />
+                          <span>Approve</span>
                         </button>
-                        <button className="reject-btn" onClick={() => handleUpdateStatus(leave.id, "rejected")}>
-                          Reject
+                        <button
+                          className="reject-btn"
+                          onClick={() => showConfirm(leave.id, "rejected")}
+                          aria-label={`Reject leave request for ${leave.employee_name || `Employee #${leave.employee_id}`}`}
+                        >
+                          <X size={16} />
+                          <span>Reject</span>
                         </button>
                       </>
                     )}
@@ -167,6 +221,29 @@ function LeaveRequestsManager() {
             })}
           </tbody>
         </table>
+      )}
+
+      {/* Confirmation Dialog */}
+      {showConfirmDialog && confirmData && (
+        <div className="confirmation-dialog-overlay">
+          <div className="confirmation-dialog" role="dialog" aria-labelledby="confirm-title">
+            <h3 id="confirm-title">{confirmData.status === "approved" ? "Approve" : "Reject"} Leave Request</h3>
+            <p>
+              Are you sure you want to {confirmData.status === "approved" ? "approve" : "reject"} this leave request?
+            </p>
+            <div className="confirmation-actions">
+              <button
+                className="confirm-btn"
+                onClick={() => handleUpdateStatus(confirmData.leaveId, confirmData.status)}
+              >
+                Yes, {confirmData.status === "approved" ? "Approve" : "Reject"}
+              </button>
+              <button className="cancel-btn" onClick={() => setShowConfirmDialog(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

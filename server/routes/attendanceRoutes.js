@@ -18,19 +18,14 @@ router.get(
 router.get("/today/:employeeId", auth.isAuthenticated, auth.isSelfOrManagerOrAdmin, attendanceController.getTodayStatus)
 
 // Get attendance by date range
-router.get(
-  "/range",
-  auth.isAuthenticated,
-  auth.isManager,
-  attendanceController.getAttendanceByDateRange
-)
+router.get("/range", auth.isAuthenticated, auth.isManager, attendanceController.getAttendanceByDateRange)
 
 // Get employee attendance statistics
 router.get(
   "/stats/:employeeId",
   auth.isAuthenticated,
   auth.isSelfOrManagerOrAdmin,
-  attendanceController.getEmployeeStats
+  attendanceController.getEmployeeStats,
 )
 
 // Mark check-in (only once per day, both employee and manager allowed)
@@ -40,27 +35,12 @@ router.post("/checkin", auth.isAuthenticated, attendanceController.checkIn)
 router.put("/checkout", auth.isAuthenticated, attendanceController.checkOut)
 
 // Update attendance record (manager only)
-router.put(
-  "/:attendanceId",
-  auth.isAuthenticated,
-  auth.isManager,
-  attendanceController.updateAttendance
-)
+router.put("/:attendanceId", auth.isAuthenticated, auth.isManager, attendanceController.updateAttendance)
 
 // Delete attendance record (manager only)
-router.delete(
-  "/:attendanceId",
-  auth.isAuthenticated,
-  auth.isManager,
-  attendanceController.deleteAttendance
-)
+router.delete("/:attendanceId", auth.isAuthenticated, auth.isManager, attendanceController.deleteAttendance)
 
 // Create a new attendance record (manager only)
-router.post(
-  "/",
-  auth.isAuthenticated,
-  auth.isManager,
-  attendanceController.createAttendance
-)
+router.post("/", auth.isAuthenticated, auth.isManager, attendanceController.createAttendance)
 
 module.exports = router

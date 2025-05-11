@@ -453,7 +453,8 @@
 
 .online-status.offline {
   background-color: #9e9e9e;
-}a.task-list-container {
+}
+a.task-list-container {
   padding: 24px;
   background-color: #ffffff;
   border-radius: 12px;
@@ -970,7 +971,6 @@
   font-style: italic;
   font-size: 0.85em;
 }
-
 
 .no-edit-note {
   color: #888;

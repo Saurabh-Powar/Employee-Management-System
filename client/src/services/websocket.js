@@ -5,6 +5,9 @@ let isConnecting = false
 let authSent = false
 let messageQueue = []
 let eventListeners = {}
+let reconnectAttempts = 0
+const MAX_RECONNECT_ATTEMPTS = 10
+const RECONNECT_DELAY = 3000
 
 // Get WebSocket URL from environment or use default
 const WS_URL = import.meta.env.VITE_WEBSOCKET_URL || "ws://localhost:5000"
@@ -31,6 +34,7 @@ export const initWebSocket = (userId, role) => {
     socket.onopen = () => {
       console.log("WebSocket connection established")
       isConnecting = false
+      reconnectAttempts = 0
 
       // Send authentication message
       if (userId && role) {
@@ -38,10 +42,7 @@ export const initWebSocket = (userId, role) => {
       }
 
       // Process any queued messages
-      while (messageQueue.length > 0) {
-        const msg = messageQueue.shift()
-        socket.send(JSON.stringify(msg))
-      }
+      processQueue()
     }
 
     socket.onmessage = (event) => {
@@ -56,15 +57,7 @@ export const initWebSocket = (userId, role) => {
         }
 
         // Dispatch event to listeners
-        if (eventListeners[data.type]) {
-          eventListeners[data.type].forEach((callback) => {
-            try {
-              callback(data.data)
-            } catch (error) {
-              console.error(`Error in event listener for ${data.type}:`, error)
-            }
-          })
-        }
+        dispatchEvent(data)
       } catch (error) {
         console.error("Error processing WebSocket message:", error)
       }
@@ -76,14 +69,8 @@ export const initWebSocket = (userId, role) => {
       isConnecting = false
       authSent = false
 
-      // Attempt to reconnect after delay
-      if (!reconnectTimer) {
-        reconnectTimer = setTimeout(() => {
-          reconnectTimer = null
-          console.log("Attempting to reconnect WebSocket...")
-          initWebSocket(userId, role)
-        }, 5000)
-      }
+      // Attempt to reconnect after delay with exponential backoff
+      scheduleReconnect(userId, role)
     }
 
     socket.onerror = (error) => {
@@ -95,14 +82,38 @@ export const initWebSocket = (userId, role) => {
     isConnecting = false
 
     // Attempt to reconnect after delay
-    if (!reconnectTimer) {
-      reconnectTimer = setTimeout(() => {
-        reconnectTimer = null
-        console.log("Attempting to reconnect WebSocket after error...")
-        initWebSocket(userId, role)
-      }, 5000)
-    }
+    scheduleReconnect(userId, role)
   }
+}
+
+// Process the message queue
+const processQueue = () => {
+  while (messageQueue.length > 0 && socket && socket.readyState === WebSocket.OPEN) {
+    const msg = messageQueue.shift()
+    socket.send(JSON.stringify(msg))
+  }
+}
+
+// Schedule a reconnection attempt with exponential backoff
+const scheduleReconnect = (userId, role) => {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+  }
+
+  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    console.log("Maximum reconnection attempts reached. Giving up.")
+    return
+  }
+
+  const delay = RECONNECT_DELAY * Math.pow(1.5, reconnectAttempts)
+  reconnectAttempts++
+
+  console.log(`Scheduling reconnection attempt ${reconnectAttempts} in ${delay}ms`)
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null
+    console.log("Attempting to reconnect WebSocket...")
+    initWebSocket(userId, role)
+  }, delay)
 }
 
 // Send authentication message
@@ -134,6 +145,19 @@ export const sendAuth = (userId, role) => {
   }
 }
 
+// Dispatch an event to registered listeners
+const dispatchEvent = (data) => {
+  if (eventListeners[data.type]) {
+    eventListeners[data.type].forEach((callback) => {
+      try {
+        callback(data.data)
+      } catch (error) {
+        console.error(`Error in event listener for ${data.type}:`, error)
+      }
+    })
+  }
+}
+
 // Send a message through WebSocket
 export const sendMessage = (type, data) => {
   const message = {
@@ -161,7 +185,11 @@ export const addEventListener = (eventType, callback) => {
   if (!eventListeners[eventType]) {
     eventListeners[eventType] = []
   }
-  eventListeners[eventType].push(callback)
+
+  // Prevent duplicate listeners
+  if (!eventListeners[eventType].includes(callback)) {
+    eventListeners[eventType].push(callback)
+  }
 
   return () => {
     removeEventListener(eventType, callback)
@@ -191,17 +219,34 @@ export const closeWebSocket = () => {
   authSent = false
   messageQueue = []
   eventListeners = {}
+  reconnectAttempts = 0
 }
 
+// Subscribe to an event
 export const subscribeToEvent = (eventType, callback) => {
-  return addEventListener(eventType, callback);
-};
+  return addEventListener(eventType, callback)
+}
 
 // Check if WebSocket is connected
 export const isConnected = () => {
   return socket && socket.readyState === WebSocket.OPEN
 }
 
+// Ping to keep connection alive
+export const ping = () => {
+  sendMessage("ping", { timestamp: Date.now() })
+}
+
+// Setup periodic ping to keep connection alive
+export const setupKeepAlive = (interval = 30000) => {
+  const intervalId = setInterval(() => {
+    if (isConnected()) {
+      ping()
+    }
+  }, interval)
+
+  return () => clearInterval(intervalId)
+}
 
 // Export WebSocket service
 export default {
@@ -212,5 +257,7 @@ export default {
   removeEventListener,
   closeWebSocket,
   subscribeToEvent,
-  isConnected
+  isConnected,
+  ping,
+  setupKeepAlive,
 }

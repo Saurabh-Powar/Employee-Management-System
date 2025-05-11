@@ -1,247 +1,152 @@
-/* General Container Styles */
 .attendance-table-container {
-  padding: 24px;
-  background-color: #ffffff;
-  border-radius: 12px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-  margin-bottom: 24px;
-  transition: all 0.3s ease;
-}
-
-.attendance-title {
-  font-size: 24px;
-  font-weight: 600;
-  color: #333;
-  margin-bottom: 20px;
-  border-bottom: 2px solid #eaeaea;
-  padding-bottom: 12px;
-}
-
-.attendance-section {
-  margin-bottom: 30px;
-}
-
-.attendance-section h3 {
-  font-size: 18px;
-  margin-bottom: 15px;
-  color: #444;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* Table Styles */
-.attendance-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-bottom: 20px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  background-color: #fff;
   border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+  max-width: 100%;
   overflow: hidden;
 }
 
-.attendance-table th {
-  background-color: #f7f7f7;
-  padding: 14px 12px;
-  text-align: left;
-  font-weight: 600;
-  color: #555;
-  border-bottom: 2px solid #eaeaea;
-  white-space: nowrap;
+.attendance-title {
+  font-size: 1.5rem;
+  margin-bottom: 1.5rem;
+  color: #333;
+  border-bottom: 1px solid #eaeaea;
+  padding-bottom: 0.75rem;
 }
 
-.attendance-table td {
-  padding: 14px 12px;
-  text-align: left;
-  border-bottom: 1px solid #f0f0f0;
-  transition: background-color 0.2s;
-}
-
-.attendance-table tr:hover {
-  background-color: #f9f9f9;
-}
-
-.attendance-table tr:nth-child(even) {
-  background-color: #fafafa;
-}
-
-/* Status Styling */
-.status-badge {
-  display: inline-block;
-  padding: 4px 10px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 500;
-  text-transform: capitalize;
-}
-
-tr.status-check-in td {
-  border-left: 3px solid #4caf50;
-}
-
-tr.status-check-out td {
-  border-left: 3px solid #2196f3;
-}
-
-tr.status-absent td {
-  border-left: 3px solid #f44336;
-}
-
-tr.status-late td {
-  border-left: 3px solid #ff9800;
-}
-
-.status-badge.check-in {
-  background-color: rgba(76, 175, 80, 0.1);
-  color: #4caf50;
-  border: 1px solid rgba(76, 175, 80, 0.2);
-}
-
-.status-badge.check-out {
-  background-color: rgba(33, 150, 243, 0.1);
-  color: #2196f3;
-  border: 1px solid rgba(33, 150, 243, 0.2);
-}
-
-.status-badge.absent {
-  background-color: rgba(244, 67, 54, 0.1);
-  color: #f44336;
-  border: 1px solid rgba(244, 67, 54, 0.2);
-}
-
-.status-badge.late {
-  background-color: rgba(255, 152, 0, 0.1);
-  color: #ff9800;
-  border: 1px solid rgba(255, 152, 0, 0.2);
-}
-
-/* Late check-in styling */
-.late-check-in {
-  color: #ff9800;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.late-icon {
-  color: #ff9800;
-}
-
-/* Attendance Actions */
 .attendance-actions-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
 }
 
 .attendance-actions {
-  background-color: #fff;
-  padding: 16px;
-  border-radius: 10px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-  border: 1px solid #f0f0f0;
-  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .attendance-status-container {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 
 .attendance-status {
-  font-size: 16px;
+  font-size: 0.9rem;
 }
 
-.attendance-status-btn {
-  padding: 10px 16px;
-  background-color: #6c5ce7;
+.attendance-status p {
+  margin: 0;
+}
+
+.attendance-status-btn,
+.refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background-color: #4f46e5;
   color: white;
   border: none;
-  border-radius: 6px;
-  font-weight: 500;
+  border-radius: 4px;
+  padding: 0.5rem 1rem;
   cursor: pointer;
-  transition: all 0.2s;
-  box-shadow: 0 2px 4px rgba(108, 92, 231, 0.2);
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  font-size: 0.9rem;
+  transition: background-color 0.2s ease;
 }
 
-.attendance-status-btn:hover:not(:disabled) {
-  background-color: #5b4bc9;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(108, 92, 231, 0.3);
+.attendance-status-btn:hover,
+.refresh-btn:hover {
+  background-color: #4338ca;
 }
 
-.attendance-status-btn:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow: 0 2px 4px rgba(108, 92, 231, 0.2);
-}
-
-.attendance-status-btn:disabled {
-  background-color: #d1d1d1;
+.attendance-status-btn:disabled,
+.refresh-btn:disabled {
+  background-color: #a5a5a5;
   cursor: not-allowed;
-  box-shadow: none;
 }
 
 .attendance-note {
-  color: #f44336;
-  font-size: 14px;
-  margin-top: 5px;
+  color: #6b7280;
+  font-size: 0.85rem;
+  margin-top: 0.25rem;
 }
 
-.refresh-btn {
-  background-color: #f5f5f9;
-  color: #555;
-  border: 1px solid #e0e0e0;
-  padding: 8px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 500;
-  transition: all 0.2s;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: 16px;
-}
-
-.refresh-btn:hover {
+.status-badge {
+  display: inline-block;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: capitalize;
   background-color: #e5e7eb;
-  transform: translateY(-1px);
+  color: #374151;
 }
 
-.refresh-btn:active {
-  transform: translateY(0);
+.attendance-section {
+  margin-top: 2rem;
 }
 
-/* Messages */
-.error-message {
-  background-color: rgba(244, 67, 54, 0.1);
-  color: #d32f2f;
-  padding: 12px;
-  border-radius: 6px;
-  margin-bottom: 15px;
-  border-left: 4px solid #f44336;
-  display: flex;
+.attendance-section h3 {
+  font-size: 1.2rem;
+  margin-bottom: 1rem;
+  color: #333;
+}
+
+.attendance-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.attendance-table th,
+.attendance-table td {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid #eaeaea;
+}
+
+.attendance-table th {
+  background-color: #f9fafb;
+  font-weight: 600;
+  color: #374151;
+}
+
+.attendance-table tr:hover {
+  background-color: #f9fafb;
+}
+
+.no-records {
+  padding: 1rem;
+  text-align: center;
+  color: #6b7280;
+  font-style: italic;
+}
+
+.edit-attendance-btn {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  gap: 0.5rem;
+  background-color: #059669;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
 }
 
-.success-message {
-  background-color: rgba(76, 175, 80, 0.1);
-  color: #388e3c;
-  padding: 12px;
-  border-radius: 6px;
-  margin-bottom: 15px;
-  border-left: 4px solid #4caf50;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.edit-attendance-btn:hover {
+  background-color: #047857;
 }
 
 .loading-container {
@@ -249,18 +154,20 @@ tr.status-late td {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 40px;
-  color: #666;
+  padding: 2rem;
+  background-color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .loading-spinner {
   border: 3px solid #f3f3f3;
-  border-top: 3px solid #6c5ce7;
+  border-top: 3px solid #4f46e5;
   border-radius: 50%;
   width: 30px;
   height: 30px;
   animation: spin 1s linear infinite;
-  margin-bottom: 10px;
+  margin-bottom: 1rem;
 }
 
 @keyframes spin {
@@ -272,124 +179,141 @@ tr.status-late td {
   }
 }
 
-.no-records {
-  text-align: center;
-  padding: 20px;
-  color: #666;
-  font-style: italic;
-  background-color: #f9f9f9;
-  border-radius: 6px;
-  border: 1px dashed #ddd;
+.late-check-in {
+  color: #ef4444;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-/* Edit button */
-.edit-attendance-btn {
+.late-indicator {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  background-color: #f3f4f6;
-  color: #4b5563;
-  border: 1px solid #d1d5db;
+}
+
+.late-icon {
+  color: #ef4444;
+}
+
+.status-late {
+  background-color: rgba(239, 68, 68, 0.05);
+}
+
+.error-message,
+.success-message {
+  padding: 0.75rem 1rem;
   border-radius: 4px;
-  padding: 6px 12px;
-  font-size: 0.85rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
 }
 
-.edit-attendance-btn:hover {
-  background-color: #e5e7eb;
-  color: #1f2937;
-}
-
-.edit-attendance-btn:active {
-  transform: translateY(1px);
-}
-
-.edit-icon {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  margin-right: 5px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='currentColor'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z' /%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: center;
-  background-size: contain;
-}
-
-/* Status badge styling */
-.status-badge {
-  display: inline-block;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: capitalize;
-}
-
-.status-present .status-badge {
-  background-color: #dcfce7;
-  color: #166534;
-}
-
-.status-absent .status-badge {
+.error-message {
   background-color: #fee2e2;
   color: #b91c1c;
+  border: 1px solid #fecaca;
 }
 
-.status-late .status-badge {
-  background-color: #fef3c7;
-  color: #92400e;
+.success-message {
+  background-color: #d1fae5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
 }
 
-.status-on-leave .status-badge {
-  background-color: #e0e7ff;
-  color: #3730a3;
+.no-edit-note {
+  color: #6b7280;
+  font-size: 0.8rem;
+  font-style: italic;
 }
 
-.status-half-day .status-badge {
-  background-color: #dbeafe;
-  color: #1e40af;
-}
-
-/* Improve table row hover effect */
-.attendance-table tbody tr:hover {
-  background-color: #f9fafb;
-}
-
-/* Responsive Design */
+/* Responsive adjustments */
 @media (max-width: 768px) {
-  .attendance-status-container {
+  .attendance-actions-bar {
     flex-direction: column;
     align-items: flex-start;
-    gap: 10px;
-  }
-
-  .attendance-status-btn {
-    width: 100%;
   }
 
   .attendance-table {
-    font-size: 14px;
-    display: block;
-    overflow-x: auto;
-    white-space: nowrap;
+    font-size: 0.8rem;
   }
 
   .attendance-table th,
   .attendance-table td {
-    padding: 10px 8px;
+    padding: 0.5rem;
   }
 
-  .attendance-actions-bar {
-    flex-direction: column;
-    gap: 16px;
+  .btn-text {
+    display: none;
   }
 
-  .refresh-btn {
-    margin-left: 0;
-    width: 100%;
-    justify-content: center;
+  .edit-attendance-btn {
+    padding: 0.4rem;
   }
+}
+
+/* Confirmation dialog styles */
+.confirmation-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.confirmation-dialog {
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 450px;
+}
+
+.confirmation-dialog h3 {
+  margin-top: 0;
+  font-size: 1.25rem;
+  color: #111827;
+}
+
+.confirmation-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.confirm-btn,
+.cancel-btn {
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  border: none;
+}
+
+.confirm-btn {
+  background-color: #4f46e5;
+  color: white;
+}
+
+.confirm-btn:hover {
+  background-color: #4338ca;
+}
+
+.cancel-btn {
+  background-color: #f3f4f6;
+  color: #374151;
+}
+
+.cancel-btn:hover {
+  background-color: #e5e7eb;
+}
+
+.icon-spin {
+  animation: spin 1s linear infinite;
 }
