@@ -193,10 +193,15 @@ export const closeWebSocket = () => {
   eventListeners = {}
 }
 
+export const subscribeToEvent = (eventType, callback) => {
+  return addEventListener(eventType, callback);
+};
+
 // Check if WebSocket is connected
 export const isConnected = () => {
   return socket && socket.readyState === WebSocket.OPEN
 }
+
 
 // Export WebSocket service
 export default {
@@ -206,5 +211,6 @@ export default {
   addEventListener,
   removeEventListener,
   closeWebSocket,
-  isConnected,
+  subscribeToEvent,
+  isConnected
 }

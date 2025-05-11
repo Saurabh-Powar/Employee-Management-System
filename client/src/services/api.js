@@ -7,32 +7,48 @@ const api = axios.create({
     "Content-Type": "application/json",
   },
   withCredentials: true, // Important for cookies/sessions
-})
+});
 
 // Add request interceptor for authentication
 api.interceptors.request.use(
   (config) => {
     // You can add auth headers here if needed
-    return config
+    return config;
   },
   (error) => {
-    return Promise.reject(error)
-  },
-)
+    return Promise.reject(error);
+  }
+);
 
 // Add response interceptor for error handling
 api.interceptors.response.use(
   (response) => {
-    return response
+    return response;
   },
   (error) => {
     // Handle session expiration or auth errors
     if (error.response && error.response.status === 401) {
-      console.error("Authentication error:", error.response.data)
+      console.error("Authentication error:", error.response.data);
       // You could dispatch a logout action here or redirect
     }
-    return Promise.reject(error)
-  },
-)
+    return Promise.reject(error);
+  }
+);
 
-export default api
+// Define shiftsAPI for shift-related API calls
+export const shiftsAPI = {
+  getShifts: async () => {
+    return api.get("/shifts");
+  },
+  createShift: async (shiftData) => {
+    return api.post("/shifts", shiftData);
+  },
+  updateShift: async (shiftId, shiftData) => {
+    return api.put(`/shifts/${shiftId}`, shiftData);
+  },
+  deleteShift: async (shiftId) => {
+    return api.delete(`/shifts/${shiftId}`);
+  },
+};
+
+export default api;

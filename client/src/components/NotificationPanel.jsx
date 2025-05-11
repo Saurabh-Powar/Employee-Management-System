@@ -57,7 +57,7 @@ function NotificationPanel() {
   // Add a function to mark all notifications as read
   const markAllAsRead = async () => {
     try {
-      await api.put("/notifications/read-all")
+      await api.put(`/notifications/read-all/${user.id}`)
       // Update all notifications in the local state
       setNotifications((prevNotifications) => prevNotifications.map((n) => ({ ...n, is_read: true })))
     } catch (err) {

@@ -6,7 +6,6 @@ import api from "../services/api"
 import { Calendar, CheckCircle } from "lucide-react"
 import "./LeaveFormS.css"
 import websocketService from "../services/websocket"
-import { formatDate } from "../utils/dateUtils"
 
 function LeaveForm() {
   const { user } = useAuth()

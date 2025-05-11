@@ -9,7 +9,7 @@ import "./AttendanceTableS.css"
 import websocketService from "../services/websocket"
 
 // Add these imports at the top of the file
-import { mapToUiValue, attendanceStatusMapping } from "../utils/statusMappings"
+import { mapToUiValue, attendanceStatusMapping } from "../utils/statusMappings.js"
 import { RefreshCw, Clock, Edit, AlertCircle } from "lucide-react"
 
 function AttendanceTable({ allowMarking = false }) {
