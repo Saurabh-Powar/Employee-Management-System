@@ -1,26 +1,32 @@
-const pool = require("./sql").pool
+const { pool, query } = require("./sql")
 const fs = require("fs")
 const path = require("path")
 const bcrypt = require("bcrypt")
 
 // Function to check if a table exists
 const tableExists = async (tableName) => {
-  const result = await pool.query(
-    `SELECT EXISTS (
-      SELECT FROM information_schema.tables 
-      WHERE table_schema = 'public' 
-      AND table_name = $1
-    )`,
-    [tableName],
-  )
-  return result.rows[0].exists
+  try {
+    const result = await query(
+      `SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = $1
+      )`,
+      [tableName],
+    )
+    return result.rows[0].exists
+  } catch (error) {
+    console.error(`Error checking if table ${tableName} exists:`, error.message)
+    return false
+  }
 }
 
 // Function to create tables
 const createTables = async () => {
-  const client = await pool.connect()
+  let client = null
 
   try {
+    client = await pool.connect()
     await client.query("BEGIN")
 
     console.log("Checking and creating database tables...")
@@ -335,12 +341,22 @@ const createTables = async () => {
 
     await client.query("COMMIT")
     console.log("All database tables created successfully")
+    return true
   } catch (error) {
-    await client.query("ROLLBACK")
-    console.error("Error creating database tables:", error)
+    if (client) {
+      await client.query("ROLLBACK")
+    }
+    console.error("Error creating database tables:", error.message)
+
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("⚠️ Continuing with limited functionality in development mode")
+      return false
+    }
     throw error
   } finally {
-    client.release()
+    if (client) {
+      client.release()
+    }
   }
 }
 

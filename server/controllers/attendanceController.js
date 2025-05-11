@@ -5,11 +5,15 @@ const { calculateWorkHours, isLate, calculateOvertime } = require("../utils/atte
 // Safe access to io - will use the initialized instance or a dummy emitter
 const getIo = () => {
   try {
-    return websocket.io
+    return (
+      websocket.io || {
+        emit: (event, data) => console.log(`WebSocket not initialized, event ${event} not emitted`),
+      }
+    )
   } catch (error) {
     console.warn("WebSocket not initialized yet, using dummy emitter")
     return {
-      emit: () => console.log("WebSocket not initialized, event not emitted"),
+      emit: (event, data) => console.log(`WebSocket not initialized, event ${event} not emitted`),
     }
   }
 }
@@ -640,21 +644,215 @@ const checkOut = async (req, res) => {
   }
 }
 
-// Other controller functions remain the same...
-
+// Get employee attendance statistics
 const getEmployeeStats = async (req, res) => {
-  // Implementation for getEmployeeStats
-  res.status(501).json({ error: "Not implemented" })
+  const { employeeId } = req.params
+  const { startDate, endDate } = req.query
+
+  try {
+    // Validate date inputs
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: "Both startDate and endDate are required" })
+    }
+
+    // Get attendance records for the date range
+    const attendanceResult = await pool.query(
+      `
+      SELECT * FROM attendance 
+      WHERE employee_id = $1 AND date BETWEEN $2 AND $3
+      ORDER BY date
+      `,
+      [employeeId, startDate, endDate],
+    )
+
+    // Calculate statistics
+    const totalDays = attendanceResult.rows.length
+    const presentDays = attendanceResult.rows.filter((a) => a.status === "present").length
+    const lateDays = attendanceResult.rows.filter((a) => a.status === "late").length
+    const absentDays = attendanceResult.rows.filter((a) => a.status === "absent").length
+    const totalWorkHours = attendanceResult.rows.reduce((sum, a) => sum + (a.work_hours || 0), 0)
+    const totalOvertimeHours = attendanceResult.rows.reduce((sum, a) => sum + (a.overtime_hours || 0), 0)
+
+    // Calculate average work hours per day (excluding absent days)
+    const workingDays = totalDays - absentDays
+    const avgWorkHours = workingDays > 0 ? totalWorkHours / workingDays : 0
+
+    res.json({
+      employeeId,
+      period: { startDate, endDate },
+      stats: {
+        totalDays,
+        presentDays,
+        lateDays,
+        absentDays,
+        totalWorkHours,
+        totalOvertimeHours,
+        avgWorkHours,
+        attendanceRate: totalDays > 0 ? (presentDays / totalDays) * 100 : 0,
+        punctualityRate: totalDays > 0 ? ((presentDays - lateDays) / totalDays) * 100 : 0,
+      },
+    })
+  } catch (error) {
+    console.error(`Error fetching attendance stats for employee ${employeeId}:`, error)
+    res.status(500).json({ error: "Failed to fetch attendance statistics" })
+  }
 }
 
+// Update attendance record
 const updateAttendance = async (req, res) => {
-  // Implementation for updateAttendance
-  res.status(501).json({ error: "Not implemented" })
+  const { attendanceId } = req.params
+  const { check_in_time, check_out_time, status, notes } = req.body
+
+  // Start a transaction
+  const client = await pool.connect()
+
+  try {
+    await client.query("BEGIN")
+
+    // Check if attendance record exists
+    const attendanceCheck = await client.query("SELECT * FROM attendance WHERE id = $1 FOR UPDATE", [attendanceId])
+
+    if (attendanceCheck.rows.length === 0) {
+      await client.query("ROLLBACK")
+      return res.status(404).json({ error: "Attendance record not found" })
+    }
+
+    const oldAttendance = attendanceCheck.rows[0]
+
+    // Calculate work hours if both check-in and check-out times are provided
+    let workHours = oldAttendance.work_hours
+    if (check_in_time && check_out_time) {
+      const checkInTime = new Date(check_in_time)
+      const checkOutTime = new Date(check_out_time)
+      workHours = (checkOutTime - checkInTime) / (1000 * 60 * 60)
+      workHours = Math.round(workHours * 100) / 100 // Round to 2 decimal places
+    }
+
+    // Update attendance record
+    const result = await client.query(
+      `
+      UPDATE attendance 
+      SET check_in_time = COALESCE($1, check_in_time),
+          check_out_time = COALESCE($2, check_out_time),
+          status = COALESCE($3, status),
+          notes = COALESCE($4, notes),
+          work_hours = $5
+      WHERE id = $6 
+      RETURNING *
+      `,
+      [check_in_time, check_out_time, status, notes, workHours, attendanceId],
+    )
+
+    const updatedAttendance = result.rows[0]
+
+    // Log the update action
+    await client.query(
+      `
+      INSERT INTO activity_logs (user_id, action, entity_type, entity_id, details)
+      VALUES ($1, $2, $3, $4, $5)
+      `,
+      [
+        req.session?.user?.id || null,
+        "update",
+        "attendance",
+        updatedAttendance.id,
+        JSON.stringify({
+          previous: {
+            check_in_time: oldAttendance.check_in_time,
+            check_out_time: oldAttendance.check_out_time,
+            status: oldAttendance.status,
+            work_hours: oldAttendance.work_hours,
+          },
+          updated: {
+            check_in_time: updatedAttendance.check_in_time,
+            check_out_time: updatedAttendance.check_out_time,
+            status: updatedAttendance.status,
+            work_hours: updatedAttendance.work_hours,
+          },
+        }),
+      ],
+    )
+
+    // Commit the transaction
+    await client.query("COMMIT")
+
+    // Emit WebSocket event
+    getIo().emit("attendance_update", {
+      employee_id: updatedAttendance.employee_id,
+      action: "update",
+      attendance: updatedAttendance,
+    })
+
+    res.json(updatedAttendance)
+  } catch (error) {
+    await client.query("ROLLBACK")
+    console.error(`Error updating attendance record ${attendanceId}:`, error)
+    res.status(500).json({ error: "Failed to update attendance record" })
+  } finally {
+    client.release()
+  }
 }
 
+// Delete attendance record
 const deleteAttendance = async (req, res) => {
-  // Implementation for deleteAttendance
-  res.status(501).json({ error: "Not implemented" })
+  const { attendanceId } = req.params
+
+  // Start a transaction
+  const client = await pool.connect()
+
+  try {
+    await client.query("BEGIN")
+
+    // Check if attendance record exists
+    const attendanceCheck = await client.query("SELECT * FROM attendance WHERE id = $1 FOR UPDATE", [attendanceId])
+
+    if (attendanceCheck.rows.length === 0) {
+      await client.query("ROLLBACK")
+      return res.status(404).json({ error: "Attendance record not found" })
+    }
+
+    const attendance = attendanceCheck.rows[0]
+
+    // Delete attendance record
+    await client.query("DELETE FROM attendance WHERE id = $1", [attendanceId])
+
+    // Log the delete action
+    await client.query(
+      `
+      INSERT INTO activity_logs (user_id, action, entity_type, entity_id, details)
+      VALUES ($1, $2, $3, $4, $5)
+      `,
+      [
+        req.session?.user?.id || null,
+        "delete",
+        "attendance",
+        attendanceId,
+        JSON.stringify({
+          employee_id: attendance.employee_id,
+          date: attendance.date,
+          status: attendance.status,
+        }),
+      ],
+    )
+
+    // Commit the transaction
+    await client.query("COMMIT")
+
+    // Emit WebSocket event
+    getIo().emit("attendance_update", {
+      employee_id: attendance.employee_id,
+      action: "delete",
+      attendance_id: attendanceId,
+    })
+
+    res.json({ message: "Attendance record deleted successfully" })
+  } catch (error) {
+    await client.query("ROLLBACK")
+    console.error(`Error deleting attendance record ${attendanceId}:`, error)
+    res.status(500).json({ error: "Failed to delete attendance record" })
+  } finally {
+    client.release()
+  }
 }
 
 module.exports = {

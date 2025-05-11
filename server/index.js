@@ -5,7 +5,7 @@ const http = require("http")
 const path = require("path")
 const dotenv = require("dotenv")
 const pgSession = require("connect-pg-simple")(session)
-const pool = require("./db/sql").pool
+const { pool, testConnection } = require("./db/sql")
 const websocket = require("./websocket")
 const createTables = require("./db/migrate")
 
@@ -40,29 +40,64 @@ app.use(
 // Initialize database tables before setting up session
 const initializeDatabase = async () => {
   try {
-    await createTables()
-    console.log("Database tables created successfully")
+    // Test database connection first
+    const connected = await testConnection()
 
-    // Session configuration - only set up after database is initialized
-    app.use(
-      session({
-        store: new pgSession({
-          pool,
-          tableName: "user_sessions",
-          createTableIfMissing: true,
+    if (connected) {
+      // Only try to create tables if we have a database connection
+      await createTables()
+      console.log("Database tables created successfully")
+    } else if (process.env.NODE_ENV === "production") {
+      console.error("Cannot start server without database connection in production mode")
+      process.exit(1)
+    } else {
+      console.warn("⚠️ Starting with limited functionality due to database connection issues")
+      console.warn("Some features that require database access will not work")
+    }
+
+    // Session configuration - use memory store if database is not available
+    if (connected) {
+      app.use(
+        session({
+          store: new pgSession({
+            pool,
+            tableName: "user_sessions",
+            createTableIfMissing: true,
+          }),
+          secret: process.env.SESSION_SECRET || "your-secret-key",
+          resave: false,
+          saveUninitialized: false,
+          cookie: {
+            secure: process.env.NODE_ENV === "production",
+            httpOnly: true,
+            maxAge: 24 * 60 * 60 * 1000, // 1 day
+          },
         }),
-        secret: process.env.SESSION_SECRET || "your-secret-key",
-        resave: false,
-        saveUninitialized: false,
-        cookie: {
-          secure: process.env.NODE_ENV === "production",
-          httpOnly: true,
-          maxAge: 24 * 60 * 60 * 1000, // 1 day
-        },
-      }),
-    )
+      )
+    } else {
+      // Fallback to memory store if database is not available (development only)
+      console.warn("⚠️ Using memory store for sessions - all sessions will be lost on server restart")
+      app.use(
+        session({
+          secret: process.env.SESSION_SECRET || "your-secret-key",
+          resave: false,
+          saveUninitialized: false,
+          cookie: {
+            secure: process.env.NODE_ENV === "production",
+            httpOnly: true,
+            maxAge: 24 * 60 * 60 * 1000, // 1 day
+          },
+        }),
+      )
+    }
 
-    // API routes - only set up after session is configured
+    // Initialize WebSocket server BEFORE setting up routes
+    websocket.init(server)
+
+    // Make WebSocket server available to the app
+    app.set("wsServer", websocket)
+
+    // API routes - set up after WebSocket is initialized
     app.use("/api/auth", require("./routes/authRoutes"))
     app.use("/api/employees", require("./routes/employeesRoutes"))
     app.use("/api/attendance", require("./routes/attendanceRoutes"))
@@ -73,16 +108,33 @@ const initializeDatabase = async () => {
     app.use("/api/notifications", require("./routes/notificationsRoutes"))
     app.use("/api/performance", require("./routes/performanceRoutes"))
 
-    // Initialize WebSocket server after database is ready
-    websocket.init(server)
+    // Health check endpoint
+    app.get("/api/health", (req, res) => {
+      res.json({
+        status: "ok",
+        timestamp: new Date().toISOString(),
+        websocket: websocket.io ? "connected" : "disconnected",
+        database: connected ? "connected" : "disconnected",
+        environment: process.env.NODE_ENV || "development",
+      })
+    })
 
     // Start server only after everything is initialized
     server.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`)
+      console.log(`Health check available at http://localhost:${PORT}/api/health`)
     })
   } catch (err) {
-    console.error("Error initializing database:", err)
-    process.exit(1)
+    console.error("Error initializing application:", err)
+    if (process.env.NODE_ENV === "production") {
+      process.exit(1)
+    } else {
+      console.error("Starting server with limited functionality...")
+      // Start server anyway in development mode
+      server.listen(PORT, () => {
+        console.log(`Server running with limited functionality on port ${PORT}`)
+      })
+    }
   }
 }
 

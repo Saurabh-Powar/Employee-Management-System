@@ -1,5 +1,21 @@
 const pool = require("../db/sql")
-const { io } = require("../websocket")
+const websocket = require("../websocket")
+
+// Safe access to io - will use the initialized instance or a dummy emitter
+const getIo = () => {
+  try {
+    return (
+      websocket.io || {
+        emit: (event, data) => console.log(`WebSocket not initialized, event ${event} not emitted`),
+      }
+    )
+  } catch (error) {
+    console.warn("WebSocket not initialized yet, using dummy emitter")
+    return {
+      emit: (event, data) => console.log(`WebSocket not initialized, event ${event} not emitted`),
+    }
+  }
+}
 
 // Notification type mapping between UI and database
 const TYPE_MAPPING = {
@@ -75,7 +91,7 @@ const createNotification = async (req, res) => {
     }
 
     // Emit WebSocket event
-    io.emit("notification", {
+    getIo().emit("notification", {
       employee_id,
       type: dbType,
       message,

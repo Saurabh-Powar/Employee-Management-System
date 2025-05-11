@@ -1,192 +1,111 @@
-// WebSocket service for real-time communication using socket.io-client
 import { io } from "socket.io-client"
 
-// Get WebSocket URL from environment or use default
-const WS_URL = import.meta.env.VITE_WEBSOCKET_URL || "http://localhost:5000"
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000"
 
 let socket = null
-let eventListeners = {}
 let reconnectAttempts = 0
-const MAX_RECONNECT_ATTEMPTS = 10
+const maxReconnectAttempts = 5
+const reconnectDelay = 3000 // 3 seconds
 
-// Initialize WebSocket connection
-export const initWebSocket = (userId, role) => {
-  if (socket && socket.connected) {
-    console.log("WebSocket already connected")
-    return
-  }
+// Initialize socket connection
+const initSocket = () => {
+  if (socket) return socket
 
-  try {
-    console.log(`Connecting to WebSocket at ${WS_URL}`)
+  socket = io(API_URL, {
+    transports: ["websocket", "polling"],
+    reconnection: true,
+    reconnectionAttempts: maxReconnectAttempts,
+    reconnectionDelay,
+    timeout: 10000,
+  })
 
-    socket = io(WS_URL, {
-      reconnection: true,
-      reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      timeout: 20000,
-      withCredentials: true,
-      path: "/socket.io", // Must match server path
-    })
+  // Setup event listeners
+  socket.on("connect", () => {
+    console.log("WebSocket connected")
+    reconnectAttempts = 0
 
-    socket.on("connect", () => {
-      console.log("WebSocket connection established")
-      reconnectAttempts = 0
+    // Notify any components that need to know about reconnection
+    window.dispatchEvent(new CustomEvent("websocket-reconnected"))
+  })
 
-      // Send authentication message
-      if (userId && role) {
-        sendAuth(userId, role)
-      }
-    })
+  socket.on("disconnect", (reason) => {
+    console.log(`WebSocket disconnected: ${reason}`)
+  })
 
-    socket.on("auth_success", (data) => {
-      console.log("WebSocket authentication successful:", data)
-    })
+  socket.on("connect_error", (error) => {
+    console.error("WebSocket connection error:", error.message)
+    reconnectAttempts++
 
-    socket.on("auth_error", (data) => {
-      console.error("WebSocket authentication failed:", data)
-    })
+    if (reconnectAttempts >= maxReconnectAttempts) {
+      console.error(`Failed to connect after ${maxReconnectAttempts} attempts`)
+      // Notify UI about connection failure
+      window.dispatchEvent(new CustomEvent("websocket-failed"))
+    }
+  })
 
-    socket.on("message", (data) => {
-      try {
-        console.log("WebSocket message received:", data.type)
-        // Dispatch event to listeners
-        dispatchEvent(data)
-      } catch (error) {
-        console.error("Error processing WebSocket message:", error)
-      }
-    })
+  socket.on("error", (error) => {
+    console.error("WebSocket error:", error)
+  })
 
-    socket.on("disconnect", (reason) => {
-      console.log(`WebSocket disconnected: ${reason}`)
-    })
-
-    socket.on("error", (error) => {
-      console.error("WebSocket error:", error)
-    })
-
-    socket.on("reconnect_attempt", (attemptNumber) => {
-      console.log(`WebSocket reconnection attempt ${attemptNumber}`)
-    })
-
-    socket.on("reconnect_failed", () => {
-      console.error("WebSocket reconnection failed after all attempts")
-    })
-  } catch (error) {
-    console.error("Error initializing WebSocket:", error)
-  }
+  return socket
 }
 
-// Dispatch an event to registered listeners
-const dispatchEvent = (data) => {
-  if (eventListeners[data.type]) {
-    eventListeners[data.type].forEach((callback) => {
-      try {
-        callback(data.data)
-      } catch (error) {
-        console.error(`Error in event listener for ${data.type}:`, error)
-      }
-    })
+// Get socket instance (creates one if it doesn't exist)
+const getSocket = () => {
+  if (!socket) {
+    return initSocket()
   }
+  return socket
 }
 
-// Send authentication message
-export const sendAuth = (userId, role) => {
-  if (!userId || !role) {
-    console.error("Cannot authenticate WebSocket: missing userId or role")
-    return
-  }
-
+// Safely emit events with error handling
+const safeEmit = (event, data, callback) => {
+  const socket = getSocket()
   if (socket && socket.connected) {
-    socket.emit("auth", { userId, role })
-    console.log("WebSocket authentication sent")
-  } else {
-    console.log("WebSocket not connected, cannot send auth")
-    // Try to initialize the connection
-    initWebSocket(userId, role)
-  }
-}
-
-// Send a message through WebSocket
-export const sendMessage = (type, data) => {
-  if (socket && socket.connected) {
-    socket.emit(type, data)
+    socket.emit(event, data, callback)
     return true
   } else {
-    console.log(`WebSocket not connected, cannot send message ${type}`)
+    console.warn(`Cannot emit ${event} - socket not connected`)
+    // Try to reconnect
+    if (socket && !socket.connected) {
+      socket.connect()
+    }
     return false
   }
 }
 
-// Add event listener
-export const addEventListener = (eventType, callback) => {
-  if (!eventListeners[eventType]) {
-    eventListeners[eventType] = []
-  }
+// Subscribe to an event
+const subscribe = (event, callback) => {
+  const socket = getSocket()
+  socket.on(event, callback)
 
-  // Prevent duplicate listeners
-  if (!eventListeners[eventType].includes(callback)) {
-    eventListeners[eventType].push(callback)
-  }
-
+  // Return unsubscribe function
   return () => {
-    removeEventListener(eventType, callback)
+    socket.off(event, callback)
   }
 }
 
-// Remove event listener
-export const removeEventListener = (eventType, callback) => {
-  if (eventListeners[eventType]) {
-    eventListeners[eventType] = eventListeners[eventType].filter((cb) => cb !== callback)
+// Manually reconnect
+const reconnect = () => {
+  if (socket) {
+    socket.connect()
+  } else {
+    initSocket()
   }
 }
 
-// Close WebSocket connection
-export const closeWebSocket = () => {
+// Disconnect socket
+const disconnect = () => {
   if (socket) {
     socket.disconnect()
-    socket = null
   }
-  eventListeners = {}
-  reconnectAttempts = 0
 }
 
-// Subscribe to an event
-export const subscribeToEvent = (eventType, callback) => {
-  return addEventListener(eventType, callback)
-}
-
-// Check if WebSocket is connected
-export const isConnected = () => {
-  return socket && socket.connected
-}
-
-// Ping to keep connection alive
-export const ping = () => {
-  sendMessage("ping", { timestamp: Date.now() })
-}
-
-// Setup periodic ping to keep connection alive
-export const setupKeepAlive = (interval = 30000) => {
-  const intervalId = setInterval(() => {
-    if (isConnected()) {
-      ping()
-    }
-  }, interval)
-
-  return () => clearInterval(intervalId)
-}
-
-// Export WebSocket service
 export default {
-  initWebSocket,
-  sendAuth,
-  sendMessage,
-  addEventListener,
-  removeEventListener,
-  closeWebSocket,
-  subscribeToEvent,
-  isConnected,
-  ping,
-  setupKeepAlive,
+  initSocket,
+  getSocket,
+  safeEmit,
+  subscribe,
+  reconnect,
+  disconnect,
 }
