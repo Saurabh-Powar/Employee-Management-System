@@ -10,7 +10,7 @@ import websocketService from "../services/websocket"
 
 // Add these imports at the top of the file
 import { mapToUiValue, attendanceStatusMapping } from "../utils/statusMappings.js"
-import { RefreshCw, Clock, Edit, AlertCircle } from "lucide-react"
+import { RefreshCw, Clock, Edit, AlertCircle, AlertTriangle } from "lucide-react"
 
 function AttendanceTable({ allowMarking = false }) {
   const { user, refreshUser } = useAuth()
@@ -49,31 +49,42 @@ function AttendanceTable({ allowMarking = false }) {
         response = await api.get(`/attendance/${user.id}`)
       } else {
         setError("Unauthorized role")
+        setLoading(false)
         return
       }
 
       const data = response.data
 
       // Fetch employee shifts for attendance status determination
-      const shiftsResponse = await api.get("/shifts")
-      const shifts = shiftsResponse.data.reduce((acc, shift) => {
-        acc[shift.employee_id] = shift
-        return acc
-      }, {})
-
-      setEmployeeShifts(shifts)
+      try {
+        const shiftsResponse = await api.get("/shifts")
+        const shifts = shiftsResponse.data.reduce((acc, shift) => {
+          acc[shift.employee_id] = shift
+          return acc
+        }, {})
+        setEmployeeShifts(shifts)
+      } catch (shiftErr) {
+        console.error("Error fetching shifts:", shiftErr)
+        // Continue without shifts data
+      }
 
       // For managers, separate their own attendance from team attendance
       if (user.role === "manager") {
-        // Find the manager's employee ID
-        const managerEmployeeResponse = await api.get("/employees")
-        const managerEmployee = managerEmployeeResponse.data.find((emp) => emp.user_id === user.id)
+        try {
+          // Find the manager's employee ID
+          const managerEmployeeResponse = await api.get("/employees")
+          const managerEmployee = managerEmployeeResponse.data.find((emp) => emp.user_id === user.id)
 
-        if (managerEmployee) {
-          const mine = data.filter((r) => r.employee_id === managerEmployee.id)
-          setOwn(mine)
-          setTeam(data.filter((r) => r.employee_id !== managerEmployee.id))
-        } else {
+          if (managerEmployee) {
+            const mine = data.filter((r) => r.employee_id === managerEmployee.id)
+            setOwn(mine)
+            setTeam(data.filter((r) => r.employee_id !== managerEmployee.id))
+          } else {
+            setOwn([])
+            setTeam(data)
+          }
+        } catch (empErr) {
+          console.error("Error fetching manager's employee record:", empErr)
           setOwn([])
           setTeam(data)
         }
@@ -89,10 +100,15 @@ function AttendanceTable({ allowMarking = false }) {
         let employeeId = user.id
 
         if (user.role === "manager") {
-          const managerEmployeeResponse = await api.get("/employees")
-          const managerEmployee = managerEmployeeResponse.data.find((emp) => emp.user_id === user.id)
-          if (managerEmployee) {
-            employeeId = managerEmployee.id
+          try {
+            const managerEmployeeResponse = await api.get("/employees")
+            const managerEmployee = managerEmployeeResponse.data.find((emp) => emp.user_id === user.id)
+            if (managerEmployee) {
+              employeeId = managerEmployee.id
+            }
+          } catch (err) {
+            console.error("Error finding manager's employee ID:", err)
+            // Continue with user.id as fallback
           }
         }
 
@@ -114,7 +130,7 @@ function AttendanceTable({ allowMarking = false }) {
         setAccessBlocked(false)
       }
     } catch (err) {
-      console.error(err)
+      console.error("Error fetching attendance data:", err)
       setError(err.response?.data?.message || "Could not load attendance.")
     } finally {
       setLoading(false)
@@ -122,18 +138,25 @@ function AttendanceTable({ allowMarking = false }) {
   }, [user])
 
   useEffect(() => {
-    fetchAttendanceData()
-
-    // Set up auto-refresh every minute
-    const intervalId = setInterval(() => {
+    if (user) {
       fetchAttendanceData()
-    }, 60000)
 
-    return () => clearInterval(intervalId)
+      // Set up auto-refresh every minute
+      const intervalId = setInterval(() => {
+        fetchAttendanceData()
+      }, 60000)
+
+      return () => clearInterval(intervalId)
+    }
   }, [user, refreshTrigger, fetchAttendanceData])
 
   // Add a useEffect hook for WebSocket listeners
   useEffect(() => {
+    if (!user) return
+
+    // Initialize WebSocket connection
+    websocketService.initWebSocket(user.id, user.role)
+
     // Set up WebSocket listener for attendance updates
     const removeListener = websocketService.subscribeToEvent("attendance_update", (data) => {
       console.log("Received attendance update via WebSocket:", data)
@@ -148,7 +171,7 @@ function AttendanceTable({ allowMarking = false }) {
       removeListener()
       cleanupKeepAlive()
     }
-  }, [triggerRefresh])
+  }, [user, triggerRefresh])
 
   const handleAttendanceClick = () => {
     setShowPopup(true)
@@ -179,25 +202,30 @@ function AttendanceTable({ allowMarking = false }) {
 
     // Prevent managers from editing their own attendance
     if (user.role === "manager") {
-      // Get manager's employee ID
-      api
-        .get("/employees")
-        .then((response) => {
-          const managerEmployee = response.data.find((emp) => emp.user_id === user.id)
+      try {
+        // Get manager's employee ID
+        api
+          .get("/employees")
+          .then((response) => {
+            const managerEmployee = response.data.find((emp) => emp.user_id === user.id)
 
-          if (managerEmployee && managerEmployee.id === employee.employee_id) {
-            setError("Managers cannot edit their own attendance records")
-            setTimeout(() => setError(""), 3000)
-            return
-          }
+            if (managerEmployee && managerEmployee.id === employee.employee_id) {
+              setError("Managers cannot edit their own attendance records")
+              setTimeout(() => setError(""), 3000)
+              return
+            }
 
-          setSelectedEmployee(employeeData)
-          setShowCorrectionForm(true)
-        })
-        .catch((err) => {
-          console.error("Error checking manager status:", err)
-          setError("Could not verify permissions")
-        })
+            setSelectedEmployee(employeeData)
+            setShowCorrectionForm(true)
+          })
+          .catch((err) => {
+            console.error("Error checking manager status:", err)
+            setError("Could not verify permissions")
+          })
+      } catch (err) {
+        console.error("Error in correction click:", err)
+        setError("An error occurred while processing your request")
+      }
     } else {
       // Admin can edit anyone's attendance
       setSelectedEmployee(employeeData)
@@ -212,20 +240,31 @@ function AttendanceTable({ allowMarking = false }) {
   }
 
   const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
-      weekday: "short",
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    })
+    if (!dateString) return "--"
+    try {
+      return new Date(dateString).toLocaleDateString("en-US", {
+        weekday: "short",
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      })
+    } catch (err) {
+      console.error("Error formatting date:", err)
+      return dateString
+    }
   }
 
   const formatTime = (timeString) => {
     if (!timeString) return "--"
-    return new Date(timeString).toLocaleTimeString("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-    })
+    try {
+      return new Date(timeString).toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    } catch (err) {
+      console.error("Error formatting time:", err)
+      return timeString
+    }
   }
 
   // Function to determine if an employee was late based on their shift
@@ -262,7 +301,8 @@ function AttendanceTable({ allowMarking = false }) {
 
   // Enhanced render function to show late status
   const render = (rows, showId = false) => {
-    if (!rows.length) return <p className="no-records">No records found</p>
+    if (!rows || !rows.length) return <p className="no-records">No records found</p>
+
     return (
       <table className="attendance-table">
         <thead>
@@ -364,6 +404,7 @@ function AttendanceTable({ allowMarking = false }) {
 
       {error && (
         <div className="error-message" role="alert">
+          <AlertTriangle size={18} className="error-icon" />
           {error}
         </div>
       )}

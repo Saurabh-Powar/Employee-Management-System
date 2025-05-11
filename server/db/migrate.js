@@ -1,369 +1,346 @@
-const { query } = require("./sql")
+const pool = require("./sql").pool
+const fs = require("fs")
+const path = require("path")
 const bcrypt = require("bcrypt")
 
+// Function to check if a table exists
+const tableExists = async (tableName) => {
+  const result = await pool.query(
+    `SELECT EXISTS (
+      SELECT FROM information_schema.tables 
+      WHERE table_schema = 'public' 
+      AND table_name = $1
+    )`,
+    [tableName],
+  )
+  return result.rows[0].exists
+}
+
+// Function to create tables
 const createTables = async () => {
+  const client = await pool.connect()
+
   try {
-    // Drop existing tables if they exist (for reset)
-    await query(`
-      DROP TABLE IF EXISTS task_timers CASCADE;
-      DROP TABLE IF EXISTS tasks CASCADE;
-      DROP TABLE IF EXISTS notifications CASCADE;
-      DROP TABLE IF EXISTS salaries CASCADE;
-      DROP TABLE IF EXISTS performance CASCADE;
-      DROP TABLE IF EXISTS leaves CASCADE;
-      DROP TABLE IF EXISTS shifts CASCADE;
-      DROP TABLE IF EXISTS attendance CASCADE;
-      DROP TABLE IF EXISTS employees CASCADE;
-      DROP TABLE IF EXISTS users CASCADE;
-    `)
+    await client.query("BEGIN")
 
-    // Create tables
-    await query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        username VARCHAR(50) UNIQUE NOT NULL,
-        password VARCHAR(100) NOT NULL,
-        role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'manager', 'employee')),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
+    console.log("Checking and creating database tables...")
 
-      CREATE TABLE IF NOT EXISTS employees (
-        id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users(id),
-        first_name VARCHAR(50) NOT NULL,
-        last_name VARCHAR(50) NOT NULL,
-        email VARCHAR(100) UNIQUE NOT NULL,
-        phone VARCHAR(20),
-        address TEXT,
-        position VARCHAR(50) NOT NULL,
-        department VARCHAR(50) NOT NULL,
-        joining_date DATE NOT NULL,
-        base_salary DECIMAL(10, 2) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
+    // Create users table if it doesn't exist
+    const usersExists = await tableExists("users")
+    if (!usersExists) {
+      console.log("Creating users table...")
+      await client.query(`
+        CREATE TABLE users (
+          id SERIAL PRIMARY KEY,
+          username VARCHAR(50) UNIQUE NOT NULL,
+          password VARCHAR(255) NOT NULL,
+          email VARCHAR(100) UNIQUE,
+          role VARCHAR(20) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          last_login TIMESTAMP
+        )
+      `)
 
-      CREATE TABLE IF NOT EXISTS attendance (
-        id SERIAL PRIMARY KEY,
-        employee_id INTEGER REFERENCES employees(id),
-        date DATE NOT NULL,
-        check_in TIMESTAMP WITH TIME ZONE,
-        check_out TIMESTAMP WITH TIME ZONE,
-        status VARCHAR(20) NOT NULL CHECK (status IN ('check-in', 'check-out', 'absent', 'late')),
-        hours_worked DECIMAL(5, 2),
-        is_late BOOLEAN DEFAULT FALSE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT unique_attendance UNIQUE (employee_id, date)
-      );
-    `)
+      // Create default users
+      const adminPassword = await bcrypt.hash("admin123", 10)
+      const managerPassword = await bcrypt.hash("manager123", 10)
+      const employeePassword = await bcrypt.hash("employee123", 10)
 
-    // Update the database schema to include attendance correction fields
-    await query(`
-      ALTER TABLE attendance 
-      ADD COLUMN IF NOT EXISTS corrected_by INTEGER REFERENCES users(id),
-      ADD COLUMN IF NOT EXISTS correction_time TIMESTAMP,
-      ADD COLUMN IF NOT EXISTS correction_reason TEXT;
-    `)
+      await client.query(
+        `
+        INSERT INTO users (username, password, email, role) VALUES
+        ('admin', $1, 'admin@example.com', 'admin'),
+        ('manager', $2, 'manager@example.com', 'manager'),
+        ('employee', $3, 'employee@example.com', 'employee')
+      `,
+        [adminPassword, managerPassword, employeePassword],
+      )
 
-    // Create shifts table for employee work schedules
-    await query(`
-      CREATE TABLE IF NOT EXISTS shifts (
-        id SERIAL PRIMARY KEY,
-        employee_id INTEGER REFERENCES employees(id) UNIQUE,
-        start_time VARCHAR(5) NOT NULL,
-        end_time VARCHAR(5) NOT NULL,
-        days TEXT[] NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `)
+      console.log("Created users table with default users")
+    }
 
-    // Create leaves table with approved_by and approved_at columns
-    await query(`
-      CREATE TABLE IF NOT EXISTS leaves (
-        id SERIAL PRIMARY KEY,
-        employee_id INTEGER REFERENCES employees(id),
-        start_date DATE NOT NULL,
-        end_date DATE NOT NULL,
-        reason TEXT,
-        status VARCHAR(20) NOT NULL CHECK (status IN ('pending', 'approved', 'rejected')),
-        approved_by INTEGER REFERENCES users(id),
-        approved_at TIMESTAMP,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT unique_leave UNIQUE (employee_id, start_date)
-      );
-    `)
+    // Create departments table if it doesn't exist
+    const departmentsExists = await tableExists("departments")
+    if (!departmentsExists) {
+      console.log("Creating departments table...")
+      await client.query(`
+        CREATE TABLE departments (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(100) NOT NULL,
+          description TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `)
 
-    await query(`
-      CREATE TABLE IF NOT EXISTS performance (
-        id SERIAL PRIMARY KEY,
-        employee_id INTEGER REFERENCES employees(id),
-        evaluation_date DATE NOT NULL,
-        rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
-        comments TEXT,
-        evaluated_by INTEGER REFERENCES users(id),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT unique_performance UNIQUE (employee_id, evaluation_date)
-      );
+      // Create default departments
+      await client.query(`
+        INSERT INTO departments (name, description) VALUES
+        ('HR', 'Human Resources Department'),
+        ('IT', 'Information Technology Department'),
+        ('Finance', 'Finance and Accounting Department'),
+        ('Marketing', 'Marketing and Sales Department')
+      `)
 
-      CREATE TABLE IF NOT EXISTS salaries (
-        id SERIAL PRIMARY KEY,
-        employee_id INTEGER REFERENCES employees(id),
-        month INTEGER NOT NULL CHECK (month BETWEEN 1 AND 12),
-        year INTEGER NOT NULL,
-        base_amount DECIMAL(10, 2) NOT NULL,
-        overtime_amount DECIMAL(10, 2) DEFAULT 0,
-        deductions DECIMAL(10, 2) DEFAULT 0,
-        total_amount DECIMAL(10, 2) NOT NULL,
-        status VARCHAR(20) NOT NULL CHECK (status IN ('pending', 'processed', 'paid')),
-        payment_date DATE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT unique_salary UNIQUE (employee_id, month, year)
-      );
+      console.log("Created departments table with default departments")
+    }
 
-      CREATE TABLE IF NOT EXISTS notifications (
-        id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users(id),
-        sender_id INTEGER REFERENCES users(id),
-        title VARCHAR(100) NOT NULL,
-        message TEXT NOT NULL,
-        type VARCHAR(20) NOT NULL CHECK (type IN ('alert', 'reminder', 'update')),
-        is_read BOOLEAN DEFAULT FALSE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT unique_notification UNIQUE (user_id, title)
-      );
-    `)
+    // Create employees table if it doesn't exist
+    const employeesExists = await tableExists("employees")
+    if (!employeesExists) {
+      console.log("Creating employees table...")
+      await client.query(`
+        CREATE TABLE employees (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER REFERENCES users(id),
+          first_name VARCHAR(50) NOT NULL,
+          last_name VARCHAR(50) NOT NULL,
+          email VARCHAR(100),
+          phone VARCHAR(20),
+          address TEXT,
+          department_id INTEGER REFERENCES departments(id),
+          position VARCHAR(100),
+          hire_date DATE,
+          role VARCHAR(20),
+          manager_id INTEGER,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `)
 
-    // Add these tables to the createTables function
-    await query(`
-      CREATE TABLE IF NOT EXISTS tasks (
-        id SERIAL PRIMARY KEY,
-        employee_id INTEGER REFERENCES employees(id),
-        title VARCHAR(100) NOT NULL,
-        description TEXT,
-        priority VARCHAR(20) NOT NULL CHECK (priority IN ('low', 'medium', 'high')),
-        due_date DATE NOT NULL,
-        status VARCHAR(20) NOT NULL CHECK (status IN ('assigned', 'in_progress', 'completed')),
-        assigned_by INTEGER REFERENCES users(id),
-        time_spent INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
+      // Create default employees
+      await client.query(`
+        INSERT INTO employees (user_id, first_name, last_name, email, phone, department_id, position, hire_date, role) VALUES
+        (1, 'Admin', 'User', 'admin@example.com', '123-456-7890', 1, 'System Administrator', '2023-01-01', 'admin'),
+        (2, 'Manager', 'User', 'manager@example.com', '123-456-7891', 2, 'IT Manager', '2023-01-15', 'manager'),
+        (3, 'Employee', 'User', 'employee@example.com', '123-456-7892', 2, 'Software Developer', '2023-02-01', 'employee')
+      `)
 
-      CREATE TABLE IF NOT EXISTS task_timers (
-        id SERIAL PRIMARY KEY,
-        task_id INTEGER REFERENCES tasks(id),
-        start_time TIMESTAMP NOT NULL,
-        end_time TIMESTAMP,
-        duration INTEGER,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `)
+      console.log("Created employees table with default employees")
+    }
 
-    // Hash passwords for default users
-    const hashedPasswordAdmin = await bcrypt.hash("admin123", 10)
-    const hashedPasswordManager = await bcrypt.hash("manager123", 10)
-    const hashedPasswordEmployee = await bcrypt.hash("employee123", 10)
+    // Create attendance table if it doesn't exist
+    const attendanceExists = await tableExists("attendance")
+    if (!attendanceExists) {
+      console.log("Creating attendance table...")
+      await client.query(`
+        CREATE TABLE attendance (
+          id SERIAL PRIMARY KEY,
+          employee_id INTEGER REFERENCES employees(id),
+          date DATE NOT NULL,
+          check_in_time TIMESTAMP,
+          check_out_time TIMESTAMP,
+          work_hours NUMERIC(5,2),
+          overtime_hours NUMERIC(5,2) DEFAULT 0,
+          status VARCHAR(20) DEFAULT 'present',
+          notes TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `)
 
-    // Insert users (admin, manager, employee)
-    await query("INSERT INTO users (username, password, role) VALUES ($1, $2, $3) ON CONFLICT (username) DO NOTHING", [
-      "admin",
-      hashedPasswordAdmin,
-      "admin",
-    ])
+      console.log("Created attendance table")
+    }
 
-    await query("INSERT INTO users (username, password, role) VALUES ($1, $2, $3) ON CONFLICT (username) DO NOTHING", [
-      "manager",
-      hashedPasswordManager,
-      "manager",
-    ])
+    // Create leaves table if it doesn't exist
+    const leavesExists = await tableExists("leaves")
+    if (!leavesExists) {
+      console.log("Creating leaves table...")
+      await client.query(`
+        CREATE TABLE leaves (
+          id SERIAL PRIMARY KEY,
+          employee_id INTEGER REFERENCES employees(id),
+          start_date DATE NOT NULL,
+          end_date DATE NOT NULL,
+          type VARCHAR(50) NOT NULL,
+          reason TEXT,
+          status VARCHAR(20) DEFAULT 'pending',
+          approved_by INTEGER,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `)
 
-    await query("INSERT INTO users (username, password, role) VALUES ($1, $2, $3) ON CONFLICT (username) DO NOTHING", [
-      "employee",
-      hashedPasswordEmployee,
-      "employee",
-    ])
+      console.log("Created leaves table")
+    }
 
-    // Insert additional test users
-    const hashedPasswordEmployee2 = await bcrypt.hash("employee456", 10)
-    const hashedPasswordEmployee3 = await bcrypt.hash("employee789", 10)
+    // Create tasks table if it doesn't exist
+    const tasksExists = await tableExists("tasks")
+    if (!tasksExists) {
+      console.log("Creating tasks table...")
+      await client.query(`
+        CREATE TABLE tasks (
+          id SERIAL PRIMARY KEY,
+          title VARCHAR(200) NOT NULL,
+          description TEXT,
+          employee_id INTEGER REFERENCES employees(id),
+          assigned_by INTEGER,
+          due_date DATE,
+          priority VARCHAR(20) DEFAULT 'medium',
+          status VARCHAR(20) DEFAULT 'pending',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `)
 
-    await query("INSERT INTO users (username, password, role) VALUES ($1, $2, $3) ON CONFLICT (username) DO NOTHING", [
-      "employee2",
-      hashedPasswordEmployee2,
-      "employee",
-    ])
+      console.log("Created tasks table")
+    }
 
-    await query("INSERT INTO users (username, password, role) VALUES ($1, $2, $3) ON CONFLICT (username) DO NOTHING", [
-      "employee3",
-      hashedPasswordEmployee3,
-      "employee",
-    ])
+    // Create shifts table if it doesn't exist
+    const shiftsExists = await tableExists("shifts")
+    if (!shiftsExists) {
+      console.log("Creating shifts table...")
+      await client.query(`
+        CREATE TABLE shifts (
+          id SERIAL PRIMARY KEY,
+          employee_id INTEGER REFERENCES employees(id),
+          start_time TIME NOT NULL,
+          end_time TIME NOT NULL,
+          days TEXT[] NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `)
 
-    // Insert default employees linked to users
-    await query(`
-      INSERT INTO employees (user_id, first_name, last_name, email, position, department, joining_date, base_salary)
-      SELECT 
-        (SELECT id FROM users WHERE username = 'admin'),
-        'Alice', 'Admin', 'alice.admin@example.com',
-        'System Admin', 'Admin Dept', '2024-01-10', 90000.00
-      ON CONFLICT (email) DO NOTHING;
-    `)
+      // Create default shifts
+      await client.query(`
+        INSERT INTO shifts (employee_id, start_time, end_time, days) VALUES
+        (1, '09:00', '17:00', ARRAY['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']),
+        (2, '09:00', '17:00', ARRAY['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']),
+        (3, '09:00', '17:00', ARRAY['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'])
+      `)
 
-    await query(`
-      INSERT INTO employees (user_id, first_name, last_name, email, position, department, joining_date, base_salary)
-      SELECT 
-        (SELECT id FROM users WHERE username = 'manager'),
-        'Bob', 'Manager', 'bob.manager@example.com',
-        'Team Lead', 'IT', '2024-02-01', 75000.00
-      ON CONFLICT (email) DO NOTHING;
-    `)
+      console.log("Created shifts table with default shifts")
+    }
 
-    await query(`
-      INSERT INTO employees (user_id, first_name, last_name, email, position, department, joining_date, base_salary)
-      SELECT 
-        (SELECT id FROM users WHERE username = 'employee'),
-        'John', 'Employee', 'john.employee@example.com',
-        'Software Engineer', 'IT', '2024-03-01', 60000.00
-      ON CONFLICT (email) DO NOTHING;
-    `)
+    // Create salaries table if it doesn't exist
+    const salariesExists = await tableExists("salaries")
+    if (!salariesExists) {
+      console.log("Creating salaries table...")
+      await client.query(`
+        CREATE TABLE salaries (
+          id SERIAL PRIMARY KEY,
+          employee_id INTEGER REFERENCES employees(id),
+          base_salary NUMERIC(10,2) NOT NULL,
+          allowances NUMERIC(10,2) DEFAULT 0,
+          deductions NUMERIC(10,2) DEFAULT 0,
+          effective_date DATE NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `)
 
-    // Insert additional employees for testing
-    await query(`
-      INSERT INTO employees (user_id, first_name, last_name, email, position, department, joining_date, base_salary)
-      SELECT 
-        (SELECT id FROM users WHERE username = 'employee2'),
-        'Sarah', 'Connor', 'sarah.connor@example.com',
-        'Software Engineer', 'IT', '2024-03-15', 65000.00
-      ON CONFLICT (email) DO NOTHING;
-    `)
+      // Create default salaries
+      await client.query(`
+        INSERT INTO salaries (employee_id, base_salary, allowances, effective_date) VALUES
+        (1, 100000, 5000, '2023-01-01'),
+        (2, 80000, 4000, '2023-01-15'),
+        (3, 60000, 3000, '2023-02-01')
+      `)
 
-    await query(`
-      INSERT INTO employees (user_id, first_name, last_name, email, position, department, joining_date, base_salary)
-      SELECT 
-        (SELECT id FROM users WHERE username = 'employee3'),
-        'Michael', 'Johnson', 'michael.johnson@example.com',
-        'QA Engineer', 'IT', '2024-04-01', 62000.00
-      ON CONFLICT (email) DO NOTHING;
-    `)
+      console.log("Created salaries table with default salaries")
+    }
 
-    // Insert default shifts for employees with correct day format (mon, tue, wed, thu, fri)
-    await query(`
-      INSERT INTO shifts (employee_id, start_time, end_time, days)
-      VALUES
-        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), '09:00', '17:00', ARRAY['mon', 'tue', 'wed', 'thu', 'fri']),
-        ((SELECT id FROM employees WHERE email = 'sarah.connor@example.com'), '08:30', '16:30', ARRAY['mon', 'tue', 'wed', 'thu', 'fri']),
-        ((SELECT id FROM employees WHERE email = 'bob.manager@example.com'), '09:00', '17:00', ARRAY['mon', 'tue', 'wed', 'thu', 'fri']),
-        ((SELECT id FROM employees WHERE email = 'michael.johnson@example.com'), '10:00', '18:00', ARRAY['mon', 'tue', 'wed', 'thu', 'fri'])
-      ON CONFLICT (employee_id) DO NOTHING;
-    `)
+    // Create salary_adjustments table if it doesn't exist
+    const salaryAdjustmentsExists = await tableExists("salary_adjustments")
+    if (!salaryAdjustmentsExists) {
+      console.log("Creating salary_adjustments table...")
+      await client.query(`
+        CREATE TABLE salary_adjustments (
+          id SERIAL PRIMARY KEY,
+          employee_id INTEGER REFERENCES employees(id),
+          date DATE NOT NULL,
+          amount NUMERIC(10,2) NOT NULL,
+          reason TEXT,
+          type VARCHAR(20) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `)
 
-    // Get current date for attendance records
-    const today = new Date()
-    const yesterday = new Date(today)
-    yesterday.setDate(yesterday.getDate() - 1)
+      console.log("Created salary_adjustments table")
+    }
 
-    const todayStr = today.toISOString().split("T")[0]
-    const yesterdayStr = yesterday.toISOString().split("T")[0]
+    // Create notifications table if it doesn't exist
+    const notificationsExists = await tableExists("notifications")
+    if (!notificationsExists) {
+      console.log("Creating notifications table...")
+      await client.query(`
+        CREATE TABLE notifications (
+          id SERIAL PRIMARY KEY,
+          employee_id INTEGER REFERENCES employees(id),
+          sender_id INTEGER,
+          title VARCHAR(200) NOT NULL,
+          message TEXT NOT NULL,
+          type VARCHAR(50),
+          is_read BOOLEAN DEFAULT false,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `)
 
-    // Insert attendance records with proper type handling
-    await query(
-      `
-      INSERT INTO attendance (employee_id, date, check_in, check_out, status, hours_worked, is_late)
-      VALUES
-        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), $1::date, ($1::date || ' 09:00:00')::timestamp with time zone, ($1::date || ' 17:00:00')::timestamp with time zone, 'check-out', 8.0, FALSE),
-        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), $2::date, ($2::date || ' 09:15:00')::timestamp with time zone, ($2::date || ' 17:15:00')::timestamp with time zone, 'check-out', 8.0, TRUE),
-        ((SELECT id FROM employees WHERE email = 'sarah.connor@example.com'), $1::date, ($1::date || ' 08:45:00')::timestamp with time zone, ($1::date || ' 16:45:00')::timestamp with time zone, 'check-out', 8.0, TRUE),
-        ((SELECT id FROM employees WHERE email = 'michael.johnson@example.com'), $1::date, ($1::date || ' 10:05:00')::timestamp with time zone, ($1::date || ' 18:05:00')::timestamp with time zone, 'check-out', 8.0, TRUE),
-        ((SELECT id FROM employees WHERE email = 'bob.manager@example.com'), $1::date, ($1::date || ' 09:00:00')::timestamp with time zone, ($1::date || ' 17:30:00')::timestamp with time zone, 'check-out', 8.5, FALSE)
-      ON CONFLICT (employee_id, date) DO NOTHING;
-    `,
-      [yesterdayStr, todayStr],
-    )
+      console.log("Created notifications table")
+    }
 
-    // Insert leave records
-    await query(`
-      INSERT INTO leaves (employee_id, start_date, end_date, reason, status)
-      VALUES
-        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), CURRENT_DATE + INTERVAL '5 days', CURRENT_DATE + INTERVAL '7 days', 'Vacation', 'pending'),
-        ((SELECT id FROM employees WHERE email = 'sarah.connor@example.com'), CURRENT_DATE + INTERVAL '10 days', CURRENT_DATE + INTERVAL '12 days', 'Family event', 'pending'),
-        ((SELECT id FROM employees WHERE email = 'michael.johnson@example.com'), CURRENT_DATE + INTERVAL '3 days', CURRENT_DATE + INTERVAL '4 days', 'Medical appointment', 'pending')
-      ON CONFLICT (employee_id, start_date) DO NOTHING;
-    `)
+    // Create performance_reviews table if it doesn't exist
+    const performanceReviewsExists = await tableExists("performance_reviews")
+    if (!performanceReviewsExists) {
+      console.log("Creating performance_reviews table...")
+      await client.query(`
+        CREATE TABLE performance_reviews (
+          id SERIAL PRIMARY KEY,
+          employee_id INTEGER REFERENCES employees(id),
+          reviewer_id INTEGER REFERENCES employees(id),
+          review_date DATE NOT NULL,
+          performance_score INTEGER,
+          strengths TEXT,
+          areas_to_improve TEXT,
+          comments TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `)
 
-    // Insert performance evaluations
-    await query(`
-      INSERT INTO performance (employee_id, evaluation_date, rating, comments, evaluated_by)
-      VALUES
-        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), CURRENT_DATE - INTERVAL '7 days', 4, 'Good performance overall', (SELECT id FROM users WHERE username = 'manager')),
-        ((SELECT id FROM employees WHERE email = 'sarah.connor@example.com'), CURRENT_DATE - INTERVAL '7 days', 5, 'Excellent performance', (SELECT id FROM users WHERE username = 'manager')),
-        ((SELECT id FROM employees WHERE email = 'michael.johnson@example.com'), CURRENT_DATE - INTERVAL '7 days', 3, 'Satisfactory performance', (SELECT id FROM users WHERE username = 'manager'))
-      ON CONFLICT (employee_id, evaluation_date) DO NOTHING;
-    `)
+      console.log("Created performance_reviews table")
+    }
 
-    // Insert salary records
-    const currentMonth = new Date().getMonth() + 1 // JavaScript months are 0-indexed
-    const currentYear = new Date().getFullYear()
+    // Create activity_logs table if it doesn't exist
+    const activityLogsExists = await tableExists("activity_logs")
+    if (!activityLogsExists) {
+      console.log("Creating activity_logs table...")
+      await client.query(`
+        CREATE TABLE activity_logs (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER,
+          action VARCHAR(50) NOT NULL,
+          entity_type VARCHAR(50),
+          entity_id INTEGER,
+          details JSONB,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `)
 
-    await query(
-      `
-      INSERT INTO salaries (employee_id, month, year, base_amount, total_amount, status)
-      VALUES
-        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), $1, $2, 5000.00, 5000.00, 'pending'),
-        ((SELECT id FROM employees WHERE email = 'sarah.connor@example.com'), $1, $2, 5416.67, 5416.67, 'pending'),
-        ((SELECT id FROM employees WHERE email = 'michael.johnson@example.com'), $1, $2, 5166.67, 5166.67, 'pending'),
-        ((SELECT id FROM employees WHERE email = 'bob.manager@example.com'), $1, $2, 6250.00, 6250.00, 'pending')
-      ON CONFLICT (employee_id, month, year) DO NOTHING;
-    `,
-      [currentMonth, currentYear],
-    )
+      console.log("Created activity_logs table")
+    }
 
-    // Insert notifications
-    await query(`
-      INSERT INTO notifications (user_id, title, message, type)
-      VALUES
-        ((SELECT id FROM users WHERE username = 'employee'), 'Attendance Reminder', 'Please check in for today', 'reminder'),
-        ((SELECT id FROM users WHERE username = 'employee2'), 'Leave Request Update', 'Your leave request is pending approval', 'update'),
-        ((SELECT id FROM users WHERE username = 'employee3'), 'Performance Review', 'Your performance review is scheduled next week', 'alert'),
-        ((SELECT id FROM users WHERE username = 'manager'), 'Leave Requests', 'You have 3 pending leave requests to review', 'alert'),
-        ((SELECT id FROM users WHERE username = 'admin'), 'System Update', 'System maintenance scheduled this weekend', 'update')
-      ON CONFLICT (user_id, title) DO NOTHING;
-    `)
+    // Create user_sessions table if it doesn't exist
+    const userSessionsExists = await tableExists("user_sessions")
+    if (!userSessionsExists) {
+      console.log("Creating user_sessions table...")
+      await client.query(`
+        CREATE TABLE user_sessions (
+          sid VARCHAR NOT NULL PRIMARY KEY,
+          sess JSON NOT NULL,
+          expire TIMESTAMP(6) NOT NULL
+        )
+      `)
 
-    // Add some sample tasks
-    await query(`
-      INSERT INTO tasks (employee_id, title, description, priority, due_date, status, assigned_by, time_spent)
-      VALUES
-        ((SELECT id FROM employees WHERE email = 'john.employee@example.com'), 
-         'Complete Project Documentation', 
-         'Write comprehensive documentation for the new feature', 
-         'medium', 
-         CURRENT_DATE + INTERVAL '3 days', 
-         'assigned', 
-         (SELECT id FROM users WHERE username = 'manager'), 
-         0),
-        ((SELECT id FROM employees WHERE email = 'sarah.connor@example.com'), 
-         'Fix Login Bug', 
-         'Investigate and fix the login issue reported by users', 
-         'high', 
-         CURRENT_DATE + INTERVAL '1 day', 
-         'in_progress', 
-         (SELECT id FROM users WHERE username = 'manager'), 
-         3600),
-        ((SELECT id FROM employees WHERE email = 'michael.johnson@example.com'), 
-         'Test New Feature', 
-         'Perform comprehensive testing of the new payment feature', 
-         'high', 
-         CURRENT_DATE + INTERVAL '2 days', 
-         'assigned', 
-         (SELECT id FROM users WHERE username = 'manager'), 
-         0)
-      ON CONFLICT DO NOTHING;
-    `)
+      // Create index on expire
+      await client.query(`
+        CREATE INDEX IDX_user_sessions_expire ON user_sessions (expire)
+      `)
 
-    console.log("Tables created and seeded successfully")
-  } catch (err) {
-    console.error("Error creating tables:", err)
-    throw err
+      console.log("Created user_sessions table")
+    }
+
+    await client.query("COMMIT")
+    console.log("All database tables created successfully")
+  } catch (error) {
+    await client.query("ROLLBACK")
+    console.error("Error creating database tables:", error)
+    throw error
+  } finally {
+    client.release()
   }
 }
 

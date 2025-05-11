@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import api from "../services/api"
 import { useAuth } from "../context/AuthContext"
-import { Clock, CheckCircle } from "lucide-react"
+import { Clock, CheckCircle, AlertTriangle } from "lucide-react"
 import "./AttendancePopups.css"
 
 const AttendancePopup = ({ onClose }) => {
@@ -21,9 +21,33 @@ const AttendancePopup = ({ onClose }) => {
 
   useEffect(() => {
     const fetchAttendanceStatus = async () => {
+      if (!user || !user.id) {
+        setError("User information not available")
+        setLoading(false)
+        return
+      }
+
       try {
         setLoading(true)
-        const response = await api.get(`/attendance/today/${user.id}`)
+        setError(null)
+
+        // First check if the user is an employee or a manager with an employee record
+        let employeeId = user.id
+
+        if (user.role === "manager") {
+          try {
+            const employeeResponse = await api.get("/employees")
+            const managerEmployee = employeeResponse.data.find((emp) => emp.user_id === user.id)
+            if (managerEmployee) {
+              employeeId = managerEmployee.id
+            }
+          } catch (err) {
+            console.error("Error fetching manager's employee record:", err)
+            // Continue with user.id as fallback
+          }
+        }
+
+        const response = await api.get(`/attendance/today/${employeeId}`)
         setStatus(response.data)
 
         if (response.data.checked_in) {
@@ -31,27 +55,32 @@ const AttendancePopup = ({ onClose }) => {
         }
 
         // Fetch employee's shift information
-        const shiftResponse = await api.get(`/shifts/employee/${user.id}`)
-        if (shiftResponse.data) {
-          setShiftInfo(shiftResponse.data)
+        try {
+          const shiftResponse = await api.get(`/shifts/employee/${employeeId}`)
+          if (shiftResponse.data) {
+            setShiftInfo(shiftResponse.data)
 
-          // Check if employee is late
-          if (response.data.checked_in) {
-            const checkInTime = new Date(response.data.check_in_time)
-            const shiftStartTime = new Date()
-            const [hours, minutes] = shiftResponse.data.start_time.split(":")
-            shiftStartTime.setHours(Number.parseInt(hours, 10), Number.parseInt(minutes, 10), 0, 0)
+            // Check if employee is late
+            if (response.data.checked_in) {
+              const checkInTime = new Date(response.data.check_in_time)
+              const shiftStartTime = new Date()
+              const [hours, minutes] = shiftResponse.data.start_time.split(":")
+              shiftStartTime.setHours(Number.parseInt(hours, 10), Number.parseInt(minutes, 10), 0, 0)
 
-            // Calculate minutes late
-            const minutesLate = Math.round((checkInTime - shiftStartTime) / (1000 * 60))
+              // Calculate minutes late
+              const minutesLate = Math.round((checkInTime - shiftStartTime) / (1000 * 60))
 
-            if (minutesLate > 15) {
-              setLateStatus({
-                late: true,
-                minutesLate: minutesLate,
-              })
+              if (minutesLate > 15) {
+                setLateStatus({
+                  late: true,
+                  minutesLate: minutesLate,
+                })
+              }
             }
           }
+        } catch (shiftErr) {
+          console.error("Error fetching shift information:", shiftErr)
+          // Don't set error, just continue without shift info
         }
       } catch (err) {
         console.error("Error fetching attendance status:", err)
@@ -68,9 +97,32 @@ const AttendancePopup = ({ onClose }) => {
 
   // Modify the handleCheckIn function to use UTC for timestamps
   const handleCheckIn = async () => {
+    if (!user || !user.id) {
+      setError("User information not available")
+      return
+    }
+
     try {
       setLoading(true)
-      const response = await api.post("/attendance/check-in", { employee_id: user.id })
+      setError(null)
+
+      // Determine the correct employee ID
+      let employeeId = user.id
+
+      if (user.role === "manager") {
+        try {
+          const employeeResponse = await api.get("/employees")
+          const managerEmployee = employeeResponse.data.find((emp) => emp.user_id === user.id)
+          if (managerEmployee) {
+            employeeId = managerEmployee.id
+          }
+        } catch (err) {
+          console.error("Error fetching manager's employee record:", err)
+          // Continue with user.id as fallback
+        }
+      }
+
+      const response = await api.post("/attendance/check-in", { employee_id: employeeId })
       setStatus(response.data)
 
       // Convert UTC timestamp to local time for display
@@ -106,9 +158,32 @@ const AttendancePopup = ({ onClose }) => {
   const handleCheckOut = async () => {
     // First show confirmation
     setConfirmAction(() => async () => {
+      if (!user || !user.id) {
+        setError("User information not available")
+        return
+      }
+
       try {
         setLoading(true)
-        const response = await api.post("/attendance/check-out", { employee_id: user.id })
+        setError(null)
+
+        // Determine the correct employee ID
+        let employeeId = user.id
+
+        if (user.role === "manager") {
+          try {
+            const employeeResponse = await api.get("/employees")
+            const managerEmployee = employeeResponse.data.find((emp) => emp.user_id === user.id)
+            if (managerEmployee) {
+              employeeId = managerEmployee.id
+            }
+          } catch (err) {
+            console.error("Error fetching manager's employee record:", err)
+            // Continue with user.id as fallback
+          }
+        }
+
+        const response = await api.post("/attendance/check-out", { employee_id: employeeId })
         setStatus(response.data)
 
         // Calculate work hours
@@ -154,7 +229,10 @@ const AttendancePopup = ({ onClose }) => {
       if (e.key === "Tab") {
         const focusableElements = document
           .querySelector(".attendance-popup-content")
-          .querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+          ?.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+
+        if (!focusableElements || focusableElements.length === 0) return
+
         const firstElement = focusableElements[0]
         const lastElement = focusableElements[focusableElements.length - 1]
 
@@ -198,7 +276,10 @@ const AttendancePopup = ({ onClose }) => {
         {loading ? (
           <div className="loading">Loading...</div>
         ) : error ? (
-          <div className="error-message">{error}</div>
+          <div className="error-message">
+            <AlertTriangle size={20} className="error-icon" />
+            {error}
+          </div>
         ) : (
           <div className="attendance-status">
             {shiftInfo && (
@@ -214,7 +295,7 @@ const AttendancePopup = ({ onClose }) => {
                 {status?.checked_in ? "Checked In" : "Checked Out"}
               </div>
 
-              {status?.checked_in && (
+              {status?.checked_in && status?.check_in_time && (
                 <p className="check-in-time">Checked in at: {new Date(status.check_in_time).toLocaleTimeString()}</p>
               )}
 

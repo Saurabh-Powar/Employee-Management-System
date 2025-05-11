@@ -5,8 +5,9 @@ const http = require("http")
 const path = require("path")
 const dotenv = require("dotenv")
 const pgSession = require("connect-pg-simple")(session)
-const pool = require("./db/sql")
+const pool = require("./db/sql").pool
 const websocket = require("./websocket")
+const createTables = require("./db/migrate")
 
 // Load environment variables
 dotenv.config()
@@ -18,12 +19,15 @@ const PORT = process.env.PORT || 5000
 // Create HTTP server
 const server = http.createServer(app)
 
-// Initialize WebSocket server
-websocket.init(server)
-
 // Middleware
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
+
+// Add cache control headers
+app.use((req, res, next) => {
+  res.setHeader("Cache-Control", "no-store, max-age=0")
+  next()
+})
 
 // Configure CORS
 app.use(
@@ -33,34 +37,54 @@ app.use(
   }),
 )
 
-// Session configuration
-app.use(
-  session({
-    store: new pgSession({
-      pool,
-      tableName: "user_sessions",
-    }),
-    secret: process.env.SESSION_SECRET || "your-secret-key",
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      secure: process.env.NODE_ENV === "production",
-      httpOnly: true,
-      maxAge: 24 * 60 * 60 * 1000, // 1 day
-    },
-  }),
-)
+// Initialize database tables before setting up session
+const initializeDatabase = async () => {
+  try {
+    await createTables()
+    console.log("Database tables created successfully")
 
-// API routes
-app.use("/api/auth", require("./routes/authRoutes"))
-app.use("/api/employees", require("./routes/employeesRoutes"))
-app.use("/api/attendance", require("./routes/attendanceRoutes"))
-app.use("/api/leaves", require("./routes/leavesRoutes"))
-app.use("/api/tasks", require("./routes/tasksRoutes"))
-app.use("/api/shifts", require("./routes/shiftsRoutes"))
-app.use("/api/salaries", require("./routes/salariesRoutes"))
-app.use("/api/notifications", require("./routes/notificationsRoutes"))
-app.use("/api/performance", require("./routes/performanceRoutes"))
+    // Session configuration - only set up after database is initialized
+    app.use(
+      session({
+        store: new pgSession({
+          pool,
+          tableName: "user_sessions",
+          createTableIfMissing: true,
+        }),
+        secret: process.env.SESSION_SECRET || "your-secret-key",
+        resave: false,
+        saveUninitialized: false,
+        cookie: {
+          secure: process.env.NODE_ENV === "production",
+          httpOnly: true,
+          maxAge: 24 * 60 * 60 * 1000, // 1 day
+        },
+      }),
+    )
+
+    // API routes - only set up after session is configured
+    app.use("/api/auth", require("./routes/authRoutes"))
+    app.use("/api/employees", require("./routes/employeesRoutes"))
+    app.use("/api/attendance", require("./routes/attendanceRoutes"))
+    app.use("/api/leaves", require("./routes/leavesRoutes"))
+    app.use("/api/tasks", require("./routes/tasksRoutes"))
+    app.use("/api/shifts", require("./routes/shiftsRoutes"))
+    app.use("/api/salaries", require("./routes/salariesRoutes"))
+    app.use("/api/notifications", require("./routes/notificationsRoutes"))
+    app.use("/api/performance", require("./routes/performanceRoutes"))
+
+    // Initialize WebSocket server after database is ready
+    websocket.init(server)
+
+    // Start server only after everything is initialized
+    server.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`)
+    })
+  } catch (err) {
+    console.error("Error initializing database:", err)
+    process.exit(1)
+  }
+}
 
 // Serve static files in production
 if (process.env.NODE_ENV === "production") {
@@ -74,13 +98,11 @@ if (process.env.NODE_ENV === "production") {
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack)
-  res.status(500).json({ error: "Something went wrong!" })
+  res.status(500).json({ error: "Something went wrong!", details: err.message })
 })
 
-// Start server
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`)
-})
+// Initialize database and start server
+initializeDatabase()
 
 // Handle graceful shutdown
 process.on("SIGINT", () => {
