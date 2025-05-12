@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "../context/AuthContext"
 import api from "../services/api"
 import "./LeaveRequestsManagerS.css"
-import websocketService from "../services/websocket"
+import * as websocketService from "../services/websocket";
 import { RefreshCw, CheckCircle, X } from "lucide-react"
 
 function LeaveRequestsManager() {

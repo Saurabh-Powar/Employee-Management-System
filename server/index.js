@@ -4,10 +4,12 @@ const session = require("express-session")
 const http = require("http")
 const path = require("path")
 const dotenv = require("dotenv")
+const url = require("url")
 const pgSession = require("connect-pg-simple")(session)
 const { pool, testConnection } = require("./db/sql")
 const websocket = require("./websocket")
-const createTables = require("./db/migrate")
+const jwt = require("jsonwebtoken");
+const { initialize, runMigrations, createInitialSchema } = require("./db/migrate")
 
 // Load environment variables
 dotenv.config()
@@ -45,7 +47,7 @@ const initializeDatabase = async () => {
 
     if (connected) {
       // Only try to create tables if we have a database connection
-      await createTables()
+      await initialize()
       console.log("Database tables created successfully")
     } else if (process.env.NODE_ENV === "production") {
       console.error("Cannot start server without database connection in production mode")
@@ -63,6 +65,7 @@ const initializeDatabase = async () => {
             pool,
             tableName: "user_sessions",
             createTableIfMissing: true,
+            errorLog: (err) => console.error("Session store error:", err), // Log session store errors
           }),
           secret: process.env.SESSION_SECRET || "your-secret-key",
           resave: false,
@@ -92,7 +95,8 @@ const initializeDatabase = async () => {
     }
 
     // Initialize WebSocket server BEFORE setting up routes
-    websocket.init(server)
+    // Initialize WebSocket server BEFORE setting up routes
+    websocket.initializeWebSocketServer(server);
 
     // Make WebSocket server available to the app
     app.set("wsServer", websocket)
@@ -123,6 +127,13 @@ const initializeDatabase = async () => {
     server.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`)
       console.log(`Health check available at http://localhost:${PORT}/api/health`)
+      const generateToken = (user) => {
+        return jwt.sign(
+          { id: user.id, username: user.username, role: user.role },
+          process.env.JWT_SECRET || "your-secret-key",
+          { expiresIn: process.env.JWT_EXPIRES_IN || "1d" }
+        );
+      };
     })
   } catch (err) {
     console.error("Error initializing application:", err)
@@ -155,6 +166,44 @@ app.use((err, req, res, next) => {
 
 // Initialize database and start server
 initializeDatabase()
+
+server.on('upgrade', (request, socket, head) => {
+  const { pathname, query } = url.parse(request.url, true);
+  console.log("WebSocket request received:", { pathname, query });
+
+  if (pathname === '/ws') {
+    const { userId, token } = query;
+    console.log("WebSocket authentication details:", { userId, token });
+    // Authentication logic here...
+    try {
+      if (!token) {
+      console.error("WebSocket connection rejected: Missing token");
+      socket.destroy();
+      return;
+      }
+
+      // Verify the token
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key");
+
+      // Check if the userId matches the token's user ID
+      if (decoded.id !== parseInt(userId, 10)) {
+      console.error("WebSocket connection rejected: Invalid user ID");
+      socket.destroy();
+      return;
+      }
+
+      console.log("WebSocket connection authenticated for user:", decoded);
+
+      // Pass the connection to the WebSocket server
+      websocket.io.handleUpgrade(request, socket, head, (ws) => {
+      websocket.io.emit("connection", ws, request);
+      });
+    } catch (err) {
+      console.error("WebSocket connection rejected:", err.message);
+      socket.destroy();
+    }
+  }
+});
 
 // Handle graceful shutdown
 process.on("SIGINT", () => {

@@ -1,48 +1,33 @@
-const express = require("express")
-const router = express.Router()
-const tasksController = require("../controllers/tasksController")
-const { isAuthenticated } = require("../middleware/authMiddleware")
+const express = require('express');
+const router = express.Router();
+const tasksController = require('../controllers/tasksController');
+const authMiddleware = require('../middleware/authMiddleware');
 
-// Middleware for Admin or Manager access
-const isAdminOrManager = (req, res, next) => {
-  const role = req.session?.user?.role
-  if (role === "admin" || role === "manager") {
-    return next()
-  }
-  return res.status(403).json({ message: "Access denied: Admin or Manager role required" })
-}
+// Apply authentication middleware to all routes
+router.use(authMiddleware.isAuthenticated); // Use isAuthenticated middleware
 
-// Get all tasks (Admin and Manager only)
-router.get("/", isAuthenticated, isAdminOrManager, tasksController.getAllTasks)
+// Get all tasks
+router.get('/', tasksController.getAllTasks);
 
-// Get tasks for a specific employee
-router.get("/employee/:employeeId", isAuthenticated, tasksController.getEmployeeTasks)
-
-// Get tasks for a specific manager
-router.get("/manager/:managerId", isAuthenticated, tasksController.getManagerTasks)
-
-// Create a new task (Admin and Manager only)
-router.post("/", isAuthenticated, isAdminOrManager, tasksController.createTask)
-
-// Update task status
-router.put("/:taskId/status", isAuthenticated, tasksController.updateTaskStatus)
-
-// Update task details
-router.put("/:taskId", isAuthenticated, isAdminOrManager, tasksController.updateTask)
-
-// Delete a task (Admin and Manager only)
-router.delete("/:taskId", isAuthenticated, isAdminOrManager, tasksController.deleteTask)
+// Get tasks by employee ID
+router.get('/employee/:employeeId', tasksController.getTasksByEmployee);
 
 // Get task by ID
-router.get("/:taskId", isAuthenticated, tasksController.getTaskById)
+router.get('/:id', tasksController.getTaskById);
 
-// Start task timer
-router.post("/:taskId/timer/start", isAuthenticated, tasksController.startTaskTimer)
+// Create new task
+router.post('/', authMiddleware.isManager, tasksController.createTask);
 
-// Stop task timer
-router.post("/:taskId/timer/stop", isAuthenticated, tasksController.stopTaskTimer)
+// Update task
+router.put('/:id', authMiddleware.isManager, tasksController.updateTask);
 
-// Get task timer history
-router.get("/:taskId/timer/history", isAuthenticated, tasksController.getTaskTimerHistory)
+// Update task status
+router.put('/:id/status', tasksController.updateTaskStatus);
 
-module.exports = router
+// Delete task
+router.delete('/:id', authMiddleware.isManager, tasksController.deleteTask);
+
+// Get task statistics
+router.get('/statistics/summary', authMiddleware.isManager, tasksController.getTaskStatistics);
+
+module.exports = router;

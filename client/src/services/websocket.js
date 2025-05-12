@@ -1,111 +1,104 @@
-import { io } from "socket.io-client"
+let socket = null;
+let reconnectTimer = null;
+const reconnectionDelay = 5000; // 5 seconds delay for reconnection attempts
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000"
+// Initialize WebSocket connection
+export const initializeWebSocket = (userId, token) => {
+  console.log("Initializing WebSocket with userId:", userId, "and token:", token);
 
-let socket = null
-let reconnectAttempts = 0
-const maxReconnectAttempts = 5
-const reconnectDelay = 3000 // 3 seconds
+  if (!userId || !token) {
+    console.error("WebSocket initialization failed: Missing userId or token");
+    return;
+  }
 
-// Initialize socket connection
-const initSocket = () => {
-  if (socket) return socket
+  const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const wsUrl = `${wsProtocol}//${window.location.hostname}:5000/ws?userId=${userId}&token=${token}`;
+  console.log("WebSocket URL:", wsUrl);
 
-  socket = io(API_URL, {
-    transports: ["websocket", "polling"],
-    reconnection: true,
-    reconnectionAttempts: maxReconnectAttempts,
-    reconnectionDelay,
-    timeout: 10000,
-  })
-
-  // Setup event listeners
-  socket.on("connect", () => {
-    console.log("WebSocket connected")
-    reconnectAttempts = 0
-
-    // Notify any components that need to know about reconnection
-    window.dispatchEvent(new CustomEvent("websocket-reconnected"))
-  })
-
-  socket.on("disconnect", (reason) => {
-    console.log(`WebSocket disconnected: ${reason}`)
-  })
-
-  socket.on("connect_error", (error) => {
-    console.error("WebSocket connection error:", error.message)
-    reconnectAttempts++
-
-    if (reconnectAttempts >= maxReconnectAttempts) {
-      console.error(`Failed to connect after ${maxReconnectAttempts} attempts`)
-      // Notify UI about connection failure
-      window.dispatchEvent(new CustomEvent("websocket-failed"))
+  socket = new WebSocket(wsUrl);
+  
+  socket.onopen = () => {
+    console.log('WebSocket connection established');
+  };
+  
+  socket.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      // Dispatch custom event with the received data
+      window.dispatchEvent(new CustomEvent('websocket-message', { detail: data }));
+    } catch (error) {
+      console.error('Error parsing WebSocket message:', error);
     }
-  })
-
-  socket.on("error", (error) => {
-    console.error("WebSocket error:", error)
-  })
-
-  return socket
-}
-
-// Get socket instance (creates one if it doesn't exist)
-const getSocket = () => {
-  if (!socket) {
-    return initSocket()
-  }
-  return socket
-}
-
-// Safely emit events with error handling
-const safeEmit = (event, data, callback) => {
-  const socket = getSocket()
-  if (socket && socket.connected) {
-    socket.emit(event, data, callback)
-    return true
-  } else {
-    console.warn(`Cannot emit ${event} - socket not connected`)
-    // Try to reconnect
-    if (socket && !socket.connected) {
-      socket.connect()
+  };
+  
+  socket.onclose = (event) => {
+    console.log('WebSocket connection closed:', event.code, event.reason);
+    
+    // Attempt to reconnect unless the connection was closed intentionally
+    if (!event.wasClean) {
+      reconnectTimer = setTimeout(() => {
+        console.log('Attempting to reconnect WebSocket...');
+        initializeWebSocket(userId, token);
+      }, reconnectionDelay);
     }
-    return false
-  }
-}
+  };
+  
+  socket.onerror = (error) => {
+    console.error('WebSocket error:', error);
+  };
+  
+  return socket;
+};
 
-// Subscribe to an event
-const subscribe = (event, callback) => {
-  const socket = getSocket()
-  socket.on(event, callback)
-
-  // Return unsubscribe function
-  return () => {
-    socket.off(event, callback)
-  }
-}
-
-// Manually reconnect
-const reconnect = () => {
-  if (socket) {
-    socket.connect()
+// Send message through WebSocket
+export const sendWebSocketMessage = (message) => {
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify(message));
+    return true;
   } else {
-    initSocket()
+    console.error('WebSocket is not connected');
+    return false;
   }
-}
+};
 
-// Disconnect socket
-const disconnect = () => {
+// Close WebSocket connection
+export const closeWebSocket = () => {
   if (socket) {
-    socket.disconnect()
+    socket.close(1000, 'User logged out');
+    socket = null;
   }
-}
+  
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+};
 
-export default {
-  initSocket,
-  getSocket,
-  safeEmit,
-  subscribe,
-  reconnect,
-  disconnect,
-}
+// Check if WebSocket is connected
+export const isWebSocketConnected = () => {
+  return socket && socket.readyState === WebSocket.OPEN;
+};
+
+// Add event listener for WebSocket messages
+export const addWebSocketListener = (callback) => {
+  const handler = (event) => callback(event.detail);
+  window.addEventListener('websocket-message', handler);
+  return handler;
+};
+
+// Remove event listener for WebSocket messages
+export const removeWebSocketListener = (handler) => {
+  window.removeEventListener('websocket-message', handler);
+};
+
+export const handleLogin = async (userId, password) => {
+  try {
+    const userData = await login(userId, password);
+    setUser(userData);
+
+    // Pass the token and userId to initializeWebSocket
+    initializeWebSocket(userData.userId, userData.token);
+  } catch (err) {
+    console.error("Login error:", err);
+  }
+};

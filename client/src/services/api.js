@@ -70,4 +70,25 @@ export const shiftsAPI = {
   },
 }
 
+// Ensure fetchTasks is defined and exported
+export const fetchTasks = async (endpoint) => {
+  try {
+    const response = await api.get(endpoint);
+    return response.data; // Return the tasks data
+  } catch (error) {
+    console.error("Error fetching tasks:", error.response?.data || error.message);
+    throw error.response?.data || error;
+  }
+};
+
+export const updateTaskStatus = async (taskId, data) => {
+  try {
+    const response = await api.put(`/tasks/${taskId}/status`, data);
+    return response.data; // Return the updated task data
+  } catch (error) {
+    console.error("Error updating task status:", error.response?.data || error.message);
+    throw error.response?.data || error;
+  }
+};
+
 export default api

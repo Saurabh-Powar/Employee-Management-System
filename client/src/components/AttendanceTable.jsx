@@ -6,20 +6,20 @@ import api from "../services/api"
 import AttendancePopup from "./AttendancePopup"
 import AttendanceCorrection from "./AttendanceCorrection"
 import "./AttendanceTableS.css"
-import websocketService from "../services/websocket"
+import * as websocketService from "../services/websocket";
 
 // Add these imports at the top of the file
 import { mapToUiValue, attendanceStatusMapping } from "../utils/statusMappings.js"
 import { RefreshCw, Clock, Edit, AlertCircle, AlertTriangle } from "lucide-react"
 
 function AttendanceTable({ allowMarking = false }) {
-  const { user, refreshUser } = useAuth()
+  const { user } = useAuth()
   const [own, setOwn] = useState([])
   const [team, setTeam] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [status, setStatus] = useState(null)
-  const [successMessage, setSuccessMessage] = useState("")
+  const [successMessage] = useState("")
   const [showPopup, setShowPopup] = useState(false)
   const [accessBlocked, setAccessBlocked] = useState(false)
   const [showCorrectionForm, setShowCorrectionForm] = useState(false)

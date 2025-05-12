@@ -1,132 +1,170 @@
-"use client"
+import React, { createContext, useState, useEffect, useContext } from 'react';
+import { login, logout, checkAuthStatus, refreshUser } from '../services/auth';
+import { initializeWebSocket, closeWebSocket, addWebSocketListener, removeWebSocketListener } from '../services/websocket';
+import axios from "axios";
 
-import { createContext, useContext, useState, useEffect } from "react"
-import authService from "../services/auth"
-import { initWebSocket, closeWebSocket } from "../services/websocket"
+const AuthContext = createContext();
 
-const AuthContext = createContext()
-
-export const useAuth = () => useContext(AuthContext)
+export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [notifications, setNotifications] = useState([]);
 
-  // Initialize auth state on component mount
+  // Check if user is already logged in
   useEffect(() => {
-    const initAuth = async () => {
+    const checkAuth = async () => {
       try {
-        const userData = await authService.getUser()
-        console.log("Initial auth check:", userData)
-        if (userData && userData.user) {
-          setUser(userData.user)
-          console.log("User authenticated:", userData.user)
-
-          // Connect to WebSocket when user is authenticated
-          if (userData.user.id) {
-            initWebSocket(userData.user.id, userData.user.role)
-          }
+        setLoading(true);
+        const authData = await checkAuthStatus();
+        const { user, token } = authData;
+  
+        if (user && user.id && token) {
+          setUser(user);
+  
+          // Initialize WebSocket connection
+          initializeWebSocket(user.id, token);
+        } else {
+          console.warn("Missing userId or token in checkAuth response");
         }
       } catch (err) {
-        console.log("Not authenticated yet:", err.message)
-        // Don't set error here as this is expected on initial load
+        console.error("Auth check error:", err);
+        setError("Failed to authenticate");
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
-    }
-
-    initAuth()
-
-    // Disconnect WebSocket on unmount
+    };
+  
+    checkAuth();
+  
     return () => {
-      closeWebSocket()
-    }
-  }, [])
-
-  // Login function
-  const login = async (username, password) => {
-    setError(null)
-    try {
-      const response = await authService.login(username, password)
-      console.log("Login response:", response)
-
-      // Check if the response contains user data
-      if (response && response.user) {
-        setUser(response.user)
-        // Connect to WebSocket after successful login
-        initWebSocket(response.user.id, response.user.role)
-        return response
-      } else if (response && response.id && response.role) {
-        // Handle case where user data is directly in the response
-        const userData = {
-          id: response.id,
-          username: response.username || username,
-          role: response.role,
-        }
-        setUser(userData)
-        // Connect to WebSocket after successful login
-        initWebSocket(userData.id, userData.role)
-        return { user: userData }
-      } else {
-        throw new Error("Invalid response format from server")
+      if (user) {
+        closeWebSocket();
       }
-    } catch (err) {
-      console.error("Login error:", err)
-      setError(err.message || "Login failed")
-      throw err
-    }
-  }
+    };
+  }, []);
 
-  // Logout function
-  const logout = async () => {
-    try {
-      await authService.logout()
-      // Disconnect WebSocket on logout
-      closeWebSocket()
-      setUser(null)
-    } catch (err) {
-      console.error("Logout error:", err)
-      setError(err.message || "Logout failed")
-    }
-  }
+  // Set up WebSocket notification listener when user is logged in
+  useEffect(() => {
+    if (!user) return;
 
-  // Refresh user data
-  const refreshUser = async () => {
-    try {
-      const userData = await authService.refreshUser()
-      console.log("Refreshed user data:", userData)
-      if (userData && userData.user) {
-        setUser(userData.user)
-      } else if (userData && userData.id && userData.role) {
-        setUser(userData)
+    const handleWebSocketMessage = (data) => {
+      if (data.type === 'notification') {
+        setNotifications(prev => [data.notification, ...prev]);
       }
-      return userData
-    } catch (err) {
-      console.error("Error refreshing user:", err)
-      setError(err.message || "Failed to refresh user data")
-      throw err
+    };
+
+    const wsListener = addWebSocketListener(handleWebSocketMessage);
+
+    return () => {
+      removeWebSocketListener(wsListener);
+    };
+  }, [user]);
+
+ // Login function
+const handleLogin = async (email, password) => {
+  try {
+    setLoading(true);
+    setError(null);
+    const userData = await login(email, password);
+    setUser(userData);
+
+    // Store the token in localStorage
+    localStorage.setItem("token", userData.token);
+
+    // Set the default Authorization header
+    axios.defaults.headers.common["Authorization"] = `Bearer ${userData.token}`;
+
+    // Initialize WebSocket connection after successful login
+    initializeWebSocket(userData.id, userData.token);
+
+    return userData;
+  } catch (err) {
+    console.error("Login error:", err);
+    setError(err.message || "Failed to login");
+    throw err;
+  } finally {
+    setLoading(false);
+  }
+};
+
+// Logout function
+const handleLogout = async () => {
+  try {
+    setLoading(true);
+    await logout();
+
+    // Clear the token from localStorage
+    localStorage.removeItem("token");
+
+    // Remove the default Authorization header
+    delete axios.defaults.headers.common["Authorization"];
+
+    // Close WebSocket connection
+    closeWebSocket();
+
+    setUser(null);
+    setNotifications([]);
+  } catch (err) {
+    console.error("Logout error:", err);
+    setError(err.message || "Failed to logout");
+  } finally {
+    setLoading(false);
+  }
+};
+
+// Axios interceptor
+useEffect(() => {
+  axios.interceptors.response.use(
+    (response) => response,
+    (error) => {
+      if (error.response && error.response.status === 401) {
+        console.log("Unauthorized access, redirecting to login");
+        localStorage.removeItem("token");
+        delete axios.defaults.headers.common["Authorization"];
+        window.location.href = "/login";
+      }
+      return Promise.reject(error);
     }
-  }
+  );
+}, []);
 
-  // Check if user has a specific role
-  const hasRole = (role) => {
-    return user && user.role === role
-  }
+  // Mark notification as read
+  const markNotificationAsRead = (notificationId) => {
+    setNotifications(prev => 
+      prev.map(notification => 
+        notification.id === notificationId 
+          ? { ...notification, read: true } 
+          : notification
+      )
+    );
+  };
 
-  // Auth context value
+  // Clear notification
+  const clearNotification = (notificationId) => {
+    setNotifications(prev => 
+      prev.filter(notification => notification.id !== notificationId)
+    );
+  };
+
   const value = {
     user,
     loading,
     error,
-    login,
-    logout,
-    refreshUser,
-    hasRole,
-    isAuthenticated: !!user,
-  }
+    notifications,
+    login: handleLogin,
+    logout: handleLogout,
+    markNotificationAsRead,
+    clearNotification
+  };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
-}
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
 
-export default AuthContext
+export default AuthContext;
