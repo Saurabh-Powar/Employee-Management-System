@@ -10,11 +10,13 @@ router.post("/login", authController.login)
 router.post("/logout", auth.isAuthenticated, authController.logout)
 
 // Get authenticated user's session data
-// Both `/session` and `/user` return the same user data for flexibility on the frontend
 router.get("/session", auth.isAuthenticated, authController.getUser)
 router.get("/user", auth.isAuthenticated, authController.getUser)
 
-// Optional: route for refreshing user session details explicitly (used in frontend refreshUser call)
+// Check authentication status
+router.get("/check", authController.checkAuth)
+
+// Route for refreshing user session details
 router.get("/refresh-user", auth.isAuthenticated, authController.refreshUser)
 
 module.exports = router

@@ -1,116 +1,82 @@
-import api from "./api"
+import axios from "axios"
 
-const authService = {
-  // Login user
-  login: async (req, res) => {
-    const { username, password } = req.body;
-  
-    if (!username || !password) {
-      return res.status(400).json({ message: "Username and password are required" });
-    }
-  
-    try {
-      const userResult = await db.query("SELECT * FROM users WHERE username = $1", [username]);
-      const user = userResult.rows[0];
-  
-      if (!user) {
-        console.log(`Login attempt failed: User '${username}' not found`);
-        return res.status(401).json({ message: "Invalid credentials" });
-      }
-  
-      const passwordMatch = await bcrypt.compare(password, user.password);
-      if (!passwordMatch) {
-        console.log(`Login attempt failed: Incorrect password for user '${username}'`);
-        return res.status(401).json({ message: "Invalid credentials" });
-      }
-  
-      const token = generateToken(user);
-  
-      req.session.user = {
-        id: user.id,
-        username: user.username,
-        role: user.role,
-      };
-  
-      req.session.save((err) => {
-        if (err) {
-          console.error("Session save error:", err);
-          return res.status(500).json({ message: "Login failed due to session error" });
-        }
-  
-        console.log(`User '${username}' logged in successfully with role: ${user.role}`);
-        res.json({
-          user: {
-            id: user.id,
-            username: user.username,
-            role: user.role,
-          },
-          token,
-          message: "Login successful",
-        });
-      });
-    } catch (error) {
-      console.error("Login error:", error);
-      res.status(500).json({ message: "Login failed due to server error", error: error.message });
-    }
-  },
+// Base URL for API requests
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api"
 
-  // Logout user
-  logout: async () => {
-    try {
-      const response = await api.post("/auth/logout")
-      return response.data
-    } catch (error) {
-      console.error("Logout API error:", error.response?.data || error.message)
-      throw error.response?.data || error
-    }
-  },
+// Configure axios with base URL
+const api = axios.create({
+  baseURL: API_URL,
+  withCredentials: true, // Important for cookies/sessions
+})
 
-  // Get current user
-  getUser: async () => {
-    try {
-      const response = await api.get("/auth/user")
-      console.log("Get user API response:", response.data)
-      return response.data
-    } catch (error) {
-      console.error("Get user API error:", error.response?.data || error.message)
-      throw error.response?.data || error
+// Set up request interceptor to add token to all requests
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem("token")
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
     }
+    return config
   },
+  (error) => Promise.reject(error),
+)
 
-  // Check authentication status
-  checkAuthStatus: async () => {
-    try {
-      const response = await api.get("/auth/check");
-      console.log("Check auth API response:", response.data);
-  
-      // Ensure the response includes userId and token
-      if (!response.data.user || !response.data.user.id || !response.data.token) {
-        throw new Error("Invalid auth response: Missing userId or token");
-      }
-  
-      return response.data; // Ensure this includes { user: { id }, token }
-    } catch (error) {
-      console.error("Check auth API error:", error.response?.data || error.message);
-      throw error.response?.data || error;
-    }
-  },
+// Login user
+export const login = async (email, password) => {
+  try {
+    console.log("Sending login request with:", { email, password })
+    const response = await api.post("/auth/login", { email, password })
 
-  // Refresh user data
-  refreshUser: async () => {
-    try {
-      const response = await api.get("/auth/refresh")
-      console.log("Refresh user API response:", response.data)
-      return response.data
-    } catch (error) {
-      console.error("Refresh user API error:", error.response?.data || error.message)
-      throw error.response?.data || error
+    // Store token in localStorage
+    if (response.data.token) {
+      localStorage.setItem("token", response.data.token)
     }
-  },
+
+    return response.data
+  } catch (error) {
+    console.error("Login error:", error.response?.data || error.message)
+    throw error.response?.data || error
+  }
 }
 
-export const login = authService.login;
-export const logout = authService.logout;
-export const getUser = authService.getUser;
-export const checkAuthStatus = authService.checkAuthStatus;
-export const refreshUser = authService.refreshUser;
+// Logout user
+export const logout = async () => {
+  try {
+    await api.post("/auth/logout")
+    localStorage.removeItem("token")
+  } catch (error) {
+    console.error("Logout error:", error)
+    // Still remove token even if server logout fails
+    localStorage.removeItem("token")
+    throw error
+  }
+}
+
+// Check authentication status
+export const checkAuthStatus = async () => {
+  try {
+    const response = await api.get("/auth/check")
+    return response.data
+  } catch (error) {
+    console.error("Auth check error:", error)
+    throw error
+  }
+}
+
+// Refresh user data
+export const refreshUser = async () => {
+  try {
+    const response = await api.get("/auth/refresh-user")
+    return response.data
+  } catch (error) {
+    console.error("Refresh user error:", error)
+    throw error
+  }
+}
+
+export default {
+  login,
+  logout,
+  checkAuthStatus,
+  refreshUser,
+}

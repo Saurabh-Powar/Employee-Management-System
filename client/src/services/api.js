@@ -1,58 +1,102 @@
 import axios from "axios"
 
 // Create an axios instance with default config
-const api = axios.create({
+const instance = axios.create({
   baseURL: import.meta.env.VITE_API_URL || "http://localhost:5000/api",
-  withCredentials: true,
-  timeout: 30000, // 30 seconds timeout
   headers: {
     "Content-Type": "application/json",
-    "Cache-Control": "no-cache",
   },
+  withCredentials: true, // Important for cookies/sessions
 })
 
-// Add a request interceptor
-api.interceptors.request.use(
+// Request interceptor for adding auth token
+instance.interceptors.request.use(
   (config) => {
-    // You can modify the request config here (add headers, etc.)
+    const token = localStorage.getItem("token")
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
     return config
   },
-  (error) => {
-    return Promise.reject(error)
-  },
+  (error) => Promise.reject(error),
 )
 
-// Add a response interceptor
-api.interceptors.response.use(
-  (response) => {
-    return response
-  },
+// Response interceptor for handling common errors
+instance.interceptors.response.use(
+  (response) => response,
   (error) => {
-    // Handle common errors here
-    if (error.response) {
-      // The request was made and the server responded with a status code
-      // that falls out of the range of 2xx
-      console.error("API Error Response:", error.response.status, error.response.data)
+    // Handle 401 Unauthorized errors
+    if (error.response && error.response.status === 401) {
+      // Clear token if it exists
+      localStorage.removeItem("token")
 
-      // Handle 401 Unauthorized - redirect to login
-      if (error.response.status === 401) {
-        console.log("Unauthorized access, redirecting to login")
-        // Check if we're not already on the login page to avoid redirect loops
-        if (!window.location.pathname.includes("/login")) {
-          window.location.href = "/login"
-        }
+      // Redirect to login if not already there
+      if (window.location.pathname !== "/login") {
+        window.location.href = "/login"
       }
-    } else if (error.request) {
-      // The request was made but no response was received
-      console.error("API No Response:", error.request)
-    } else {
-      // Something happened in setting up the request that triggered an Error
-      console.error("API Request Error:", error.message)
     }
 
     return Promise.reject(error)
   },
 )
+
+// API service with methods for common operations
+export const api = {
+  // Set auth token in headers
+  setAuthToken: (token) => {
+    if (token) {
+      instance.defaults.headers.common.Authorization = `Bearer ${token}`
+    }
+  },
+
+  // Clear auth token from headers
+  clearAuthToken: () => {
+    delete instance.defaults.headers.common.Authorization
+  },
+
+  // GET request
+  get: async (url, config = {}) => {
+    try {
+      return await instance.get(url, config)
+    } catch (error) {
+      console.error(`GET ${url} error:`, error)
+      throw error
+    }
+  },
+
+  // POST request
+  post: async (url, data = {}, config = {}) => {
+    try {
+      return await instance.post(url, data, config)
+    } catch (error) {
+      console.error(`POST ${url} error:`, error)
+      throw error
+    }
+  },
+
+  // PUT request
+  put: async (url, data = {}, config = {}) => {
+    try {
+      return await instance.put(url, data, config)
+    } catch (error) {
+      console.error(`PUT ${url} error:`, error)
+      throw error
+    }
+  },
+
+  // DELETE request
+  delete: async (url, config = {}) => {
+    try {
+      return await instance.delete(url, config)
+    } catch (error) {
+      console.error(`DELETE ${url} error:`, error)
+      throw error
+    }
+  },
+
+  // The axios instance itself for custom requests
+  instance,
+}
 
 // Define shiftsAPI for shift-related API calls
 export const shiftsAPI = {
@@ -73,22 +117,22 @@ export const shiftsAPI = {
 // Ensure fetchTasks is defined and exported
 export const fetchTasks = async (endpoint) => {
   try {
-    const response = await api.get(endpoint);
-    return response.data; // Return the tasks data
+    const response = await api.get(endpoint)
+    return response.data // Return the tasks data
   } catch (error) {
-    console.error("Error fetching tasks:", error.response?.data || error.message);
-    throw error.response?.data || error;
+    console.error("Error fetching tasks:", error.response?.data || error.message)
+    throw error.response?.data || error
   }
-};
+}
 
 export const updateTaskStatus = async (taskId, data) => {
   try {
-    const response = await api.put(`/tasks/${taskId}/status`, data);
-    return response.data; // Return the updated task data
+    const response = await api.put(`/tasks/${taskId}/status`, data)
+    return response.data // Return the updated task data
   } catch (error) {
-    console.error("Error updating task status:", error.response?.data || error.message);
-    throw error.response?.data || error;
+    console.error("Error updating task status:", error.response?.data || error.message)
+    throw error.response?.data || error
   }
-};
+}
 
 export default api

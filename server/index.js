@@ -8,8 +8,9 @@ const url = require("url")
 const pgSession = require("connect-pg-simple")(session)
 const { pool, testConnection } = require("./db/sql")
 const websocket = require("./websocket")
-const jwt = require("jsonwebtoken");
+const jwt = require("jsonwebtoken")
 const { initialize, runMigrations, createInitialSchema } = require("./db/migrate")
+const fs = require("fs")
 
 // Load environment variables
 dotenv.config()
@@ -96,7 +97,7 @@ const initializeDatabase = async () => {
 
     // Initialize WebSocket server BEFORE setting up routes
     // Initialize WebSocket server BEFORE setting up routes
-    websocket.initializeWebSocketServer(server);
+    websocket.initializeWebSocketServer(server)
 
     // Make WebSocket server available to the app
     app.set("wsServer", websocket)
@@ -131,9 +132,9 @@ const initializeDatabase = async () => {
         return jwt.sign(
           { id: user.id, username: user.username, role: user.role },
           process.env.JWT_SECRET || "your-secret-key",
-          { expiresIn: process.env.JWT_EXPIRES_IN || "1d" }
-        );
-      };
+          { expiresIn: process.env.JWT_EXPIRES_IN || "1d" },
+        )
+      }
     })
   } catch (err) {
     console.error("Error initializing application:", err)
@@ -151,11 +152,38 @@ const initializeDatabase = async () => {
 
 // Serve static files in production
 if (process.env.NODE_ENV === "production") {
-  app.use(express.static(path.join(__dirname, "../client/dist")))
+  // Check if the client/dist directory exists
+  const distPath = path.join(__dirname, "../client/dist")
 
-  app.get("*", (req, res) => {
-    res.sendFile(path.join(__dirname, "../client/dist/index.html"))
-  })
+  if (fs.existsSync(distPath)) {
+    console.log(`Serving static files from: ${distPath}`)
+    app.use(express.static(distPath))
+
+    app.get("*", (req, res) => {
+      res.sendFile(path.join(distPath, "index.html"))
+    })
+  } else {
+    console.warn(`Warning: Production build directory not found at ${distPath}`)
+    console.warn("Static file serving is disabled. Run 'npm run build' in the client directory first.")
+
+    // Add a fallback route that explains the issue
+    app.get("*", (req, res, next) => {
+      if (req.path.startsWith("/api")) {
+        return next() // Let API routes handle API requests
+      }
+
+      res.status(503).send(`
+        <html>
+          <head><title>Server Configuration Error</title></head>
+          <body>
+            <h1>Server Configuration Error</h1>
+            <p>The production build directory was not found.</p>
+            <p>Please run 'npm run build' in the client directory and restart the server.</p>
+          </body>
+        </html>
+      `)
+    })
+  }
 }
 
 // Error handling middleware
@@ -167,43 +195,43 @@ app.use((err, req, res, next) => {
 // Initialize database and start server
 initializeDatabase()
 
-server.on('upgrade', (request, socket, head) => {
-  const { pathname, query } = url.parse(request.url, true);
-  console.log("WebSocket request received:", { pathname, query });
+server.on("upgrade", (request, socket, head) => {
+  const { pathname, query } = url.parse(request.url, true)
+  console.log("WebSocket request received:", { pathname, query })
 
-  if (pathname === '/ws') {
-    const { userId, token } = query;
-    console.log("WebSocket authentication details:", { userId, token });
+  if (pathname === "/ws") {
+    const { userId, token } = query
+    console.log("WebSocket authentication details:", { userId, token })
     // Authentication logic here...
     try {
       if (!token) {
-      console.error("WebSocket connection rejected: Missing token");
-      socket.destroy();
-      return;
+        console.error("WebSocket connection rejected: Missing token")
+        socket.destroy()
+        return
       }
 
       // Verify the token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key");
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key")
 
       // Check if the userId matches the token's user ID
-      if (decoded.id !== parseInt(userId, 10)) {
-      console.error("WebSocket connection rejected: Invalid user ID");
-      socket.destroy();
-      return;
+      if (decoded.id !== Number.parseInt(userId, 10)) {
+        console.error("WebSocket connection rejected: Invalid user ID")
+        socket.destroy()
+        return
       }
 
-      console.log("WebSocket connection authenticated for user:", decoded);
+      console.log("WebSocket connection authenticated for user:", decoded)
 
       // Pass the connection to the WebSocket server
       websocket.io.handleUpgrade(request, socket, head, (ws) => {
-      websocket.io.emit("connection", ws, request);
-      });
+        websocket.io.emit("connection", ws, request)
+      })
     } catch (err) {
-      console.error("WebSocket connection rejected:", err.message);
-      socket.destroy();
+      console.error("WebSocket connection rejected:", err.message)
+      socket.destroy()
     }
   }
-});
+})
 
 // Handle graceful shutdown
 process.on("SIGINT", () => {

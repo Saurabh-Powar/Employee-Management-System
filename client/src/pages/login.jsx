@@ -6,19 +6,19 @@ import { useAuth } from "../context/AuthContext"
 import "./Loginstyle.css"
 
 const Login = () => {
-  const [username, setUsername] = useState("")
+  const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
-  const { login, user, isAuthenticated } = useAuth()
+  const { login, user } = useAuth()
 
   // Redirect if already logged in
   useEffect(() => {
-    if (isAuthenticated && user) {
+    if (user) {
       redirectBasedOnRole(user.role)
     }
-  }, [isAuthenticated, user, navigate])
+  }, [user, navigate])
 
   const redirectBasedOnRole = (role) => {
     console.log(`Redirecting user with role: ${role}`)
@@ -40,15 +40,23 @@ const Login = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+
+    // Client-side validation
+    if (!email || !password) {
+      setError("Email and password are required")
+      return
+    }
+
     setLoading(true)
     setError(null)
 
     try {
-      const response = await login(username, password)
+      console.log("Attempting login with:", { email, password })
+      const response = await login(email, password)
       console.log("Login response:", response)
 
       if (response?.user?.role) {
-        console.log(`Login successful for ${username} with role: ${response.user.role}`)
+        console.log(`Login successful for ${email} with role: ${response.user.role}`)
         redirectBasedOnRole(response.user.role)
       } else {
         setError("Invalid login response. Please try again.")
@@ -64,22 +72,24 @@ const Login = () => {
   return (
     <div className="login-container">
       <form onSubmit={handleSubmit} className="login-form">
-        <h2 className="login-title">Login</h2>
+        <h2 className="login-title">Employee Management System</h2>
+        <h3 className="login-subtitle">Login</h3>
 
         {error && <p className="error-message">{error}</p>}
 
         <div className="input-group">
-          <label className="input-label" htmlFor="username">
-            Username
+          <label className="input-label" htmlFor="email">
+            Email
           </label>
           <input
-            id="username"
-            type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            id="email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
             className="input-field"
             required
-            autoComplete="username"
+            autoComplete="email"
+            placeholder="Enter your email"
           />
         </div>
 
@@ -95,12 +105,22 @@ const Login = () => {
             className="input-field"
             required
             autoComplete="current-password"
+            placeholder="Enter your password"
           />
         </div>
 
         <button type="submit" className="submit-button" disabled={loading}>
           {loading ? "Logging in..." : "Login"}
         </button>
+
+        <div className="test-accounts">
+          <p>Test Accounts:</p>
+          <ul>
+            <li>Admin: admin@example.com / admin123</li>
+            <li>Manager: manager@example.com / manager123</li>
+            <li>Employee: employee@example.com / employee123</li>
+          </ul>
+        </div>
       </form>
     </div>
   )
