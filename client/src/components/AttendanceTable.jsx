@@ -6,7 +6,7 @@ import api from "../services/api"
 import AttendancePopup from "./AttendancePopup"
 import AttendanceCorrection from "./AttendanceCorrection"
 import "./AttendanceTableS.css"
-import * as websocketService from "../services/websocket";
+import * as websocketService from "../services/websocket"
 
 // Add these imports at the top of the file
 import { mapToUiValue, attendanceStatusMapping } from "../utils/statusMappings.js"

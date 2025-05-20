@@ -9,7 +9,7 @@ const pgSession = require("connect-pg-simple")(session)
 const { pool, testConnection } = require("./db/sql")
 const websocket = require("./websocket")
 const jwt = require("jsonwebtoken")
-const { initialize, runMigrations, createInitialSchema } = require("./db/migrate")
+const { initialize } = require("./db/migrate")
 const fs = require("fs")
 
 // Load environment variables
@@ -43,41 +43,66 @@ app.use(
 // Initialize database tables before setting up session
 const initializeDatabase = async () => {
   try {
-    // Test database connection first
-    const connected = await testConnection()
+    // Check if we should use mock data in development
+    const useMockData = process.env.NODE_ENV !== "production" && process.env.USE_MOCK_DATA === "true"
 
-    if (connected) {
-      // Only try to create tables if we have a database connection
-      await initialize()
-      console.log("Database tables created successfully")
-    } else if (process.env.NODE_ENV === "production") {
-      console.error("Cannot start server without database connection in production mode")
-      process.exit(1)
-    } else {
-      console.warn("⚠️ Starting with limited functionality due to database connection issues")
-      console.warn("Some features that require database access will not work")
-    }
+    // Test database connection first (skip if using mock data)
+    const connected = useMockData ? true : await testConnection()
 
     // Session configuration - use memory store if database is not available
     if (connected) {
-      app.use(
-        session({
-          store: new pgSession({
-            pool,
-            tableName: "user_sessions",
-            createTableIfMissing: true,
-            errorLog: (err) => console.error("Session store error:", err), // Log session store errors
+      // Only use pgSession if we're not using mock data
+      if (!useMockData) {
+        app.use(
+          session({
+            store: new pgSession({
+              pool,
+              tableName: "user_sessions",
+              createTableIfMissing: true,
+              errorLog: (err) => console.error("Session store error:", err), // Log session store errors
+            }),
+            secret: process.env.SESSION_SECRET || "your-secret-key",
+            resave: false,
+            saveUninitialized: false,
+            cookie: {
+              secure: process.env.NODE_ENV === "production",
+              httpOnly: true,
+              maxAge: 24 * 60 * 60 * 1000, // 1 day
+            },
           }),
-          secret: process.env.SESSION_SECRET || "your-secret-key",
-          resave: false,
-          saveUninitialized: false,
-          cookie: {
-            secure: process.env.NODE_ENV === "production",
-            httpOnly: true,
-            maxAge: 24 * 60 * 60 * 1000, // 1 day
-          },
-        }),
-      )
+        )
+      } else {
+        // Use memory store for mock data mode
+        app.use(
+          session({
+            secret: process.env.SESSION_SECRET || "your-secret-key",
+            resave: false,
+            saveUninitialized: false,
+            cookie: {
+              secure: process.env.NODE_ENV === "production",
+              httpOnly: true,
+              maxAge: 24 * 60 * 60 * 1000, // 1 day
+            },
+          }),
+        )
+      }
+
+      // Only try to create tables if we have a database connection and not using mock data
+      if (!useMockData) {
+        try {
+          await initialize()
+          console.log("Database tables created successfully")
+        } catch (dbError) {
+          console.error("Error creating database tables:", dbError)
+          if (process.env.NODE_ENV === "production") {
+            console.error("Cannot start server without database tables in production mode")
+            process.exit(1)
+          } else {
+            console.warn("⚠️ Starting with limited functionality due to database table creation issues")
+            console.warn("Consider setting USE_MOCK_DATA=true in your .env file for development.")
+          }
+        }
+      }
     } else {
       // Fallback to memory store if database is not available (development only)
       console.warn("⚠️ Using memory store for sessions - all sessions will be lost on server restart")
@@ -93,9 +118,16 @@ const initializeDatabase = async () => {
           },
         }),
       )
+
+      if (process.env.NODE_ENV === "production") {
+        console.error("Cannot start server without database connection in production mode")
+        process.exit(1)
+      } else {
+        console.warn("⚠️ Starting with limited functionality due to database connection issues")
+        console.warn("Consider setting USE_MOCK_DATA=true in your .env file for development.")
+      }
     }
 
-    // Initialize WebSocket server BEFORE setting up routes
     // Initialize WebSocket server BEFORE setting up routes
     websocket.initializeWebSocketServer(server)
 
@@ -121,7 +153,26 @@ const initializeDatabase = async () => {
         websocket: websocket.io ? "connected" : "disconnected",
         database: connected ? "connected" : "disconnected",
         environment: process.env.NODE_ENV || "development",
+        mockData: useMockData ? "enabled" : "disabled",
       })
+    })
+
+    // Database reconnection endpoint (for admin use)
+    app.post("/api/admin/reconnect-db", async (req, res) => {
+      try {
+        const result = await testConnection()
+        res.json({
+          success: result,
+          message: result ? "Database reconnected successfully" : "Database reconnection failed",
+          timestamp: new Date().toISOString(),
+        })
+      } catch (error) {
+        res.status(500).json({
+          success: false,
+          message: "Error reconnecting to database",
+          error: process.env.NODE_ENV === "production" ? "Server error" : error.message,
+        })
+      }
     })
 
     // Start server only after everything is initialized
@@ -189,7 +240,10 @@ if (process.env.NODE_ENV === "production") {
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack)
-  res.status(500).json({ error: "Something went wrong!", details: err.message })
+  res.status(500).json({
+    error: "Something went wrong!",
+    details: process.env.NODE_ENV === "production" ? "Server error" : err.message,
+  })
 })
 
 // Initialize database and start server

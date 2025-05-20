@@ -5,7 +5,7 @@ import { useAuth } from "../context/AuthContext"
 import api from "../services/api"
 import { Calendar, CheckCircle } from "lucide-react"
 import "./LeaveFormS.css"
-import * as websocketService from "../services/websocket";
+import * as websocketService from "../services/websocket"
 
 function LeaveForm() {
   const { user } = useAuth()

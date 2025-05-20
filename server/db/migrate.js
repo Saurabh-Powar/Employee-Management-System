@@ -70,8 +70,15 @@ const runMigrations = async () => {
     console.log("Database migrations completed successfully")
   } catch (error) {
     console.error("Migration error:", error)
-    process.exit(1)
+    if (process.env.NODE_ENV === "production") {
+      throw error
+    } else {
+      console.warn("Skipping migrations in development mode due to error")
+      return false
+    }
   }
+
+  return true
 }
 
 // Create initial schema and add test data
@@ -235,9 +242,16 @@ const createInitialSchema = async () => {
         console.log("Test users already exist. Skipping...")
       }
     }
+
+    return true
   } catch (error) {
     console.error("Error creating initial schema:", error)
-    throw error
+    if (process.env.NODE_ENV === "production") {
+      throw error
+    } else {
+      console.warn("Skipping schema creation in development mode due to error")
+      return false
+    }
   }
 }
 
@@ -399,30 +413,53 @@ const addTestUsers = async () => {
     `
 
     console.log("Example data added successfully")
+    return true
   } catch (error) {
     console.error("Error adding test users:", error)
-    throw error
+    if (process.env.NODE_ENV === "production") {
+      throw error
+    } else {
+      console.warn("Skipping test data creation in development mode due to error")
+      return false
+    }
   }
 }
 
 // Run the migrations
 const initialize = async () => {
   try {
-    await createInitialSchema()
-    await runMigrations()
+    // Check if we're in development mode with mock data
+    if (process.env.NODE_ENV !== "production" && process.env.USE_MOCK_DATA === "true") {
+      console.log("Using mock data in development mode. Skipping database initialization.")
+      return true
+    }
+
+    const schemaCreated = await createInitialSchema()
+    if (schemaCreated) {
+      await runMigrations()
+    }
     console.log("Database initialization completed")
+    return true
   } catch (error) {
     console.error("Database initialization failed:", error)
-    process.exit(1)
-  } finally {
-    // Close the connection pool
-    await sql.end()
+
+    if (process.env.NODE_ENV === "production") {
+      throw error
+    } else {
+      console.warn("Running in development mode with limited functionality")
+      return false
+    }
   }
 }
 
 // Run if this script is executed directly
 if (require.main === module) {
-  initialize()
+  initialize().finally(() => {
+    // Close the connection pool
+    sql.end().catch((err) => {
+      console.error("Error closing SQL connection:", err)
+    })
+  })
 }
 
 module.exports = { initialize, runMigrations, createInitialSchema }
